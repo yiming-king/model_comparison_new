@@ -4,47 +4,35 @@ os.environ["KERAS_BACKEND"] = "tensorflow"
 
 import itertools
 import json
+from dataclasses import asdict
 
 import bayesflow as bf
 import keras
 
-from dataclasses import asdict
-
-from .config import TrainingConfig
+from ..config import ASSUMED_MODELS
+from .config import (
+    DIRECT_SCORING_RULES,
+    TrainingConfig,
+    checkpoint_path,
+    history_path,
+)
 from .simulators import get_simulator
-from ..config import NETWORK_DIR
-
 # General settings
-MODELS = ["m1", "m2", "m3", "m4"]
+MODELS = ASSUMED_MODELS
 
-SCORING_RULES = [
-    "cross_entropy",
-    "logistic",
-    "exponential",
-]
-
+SCORING_RULES = DIRECT_SCORING_RULES
 NUM_OBS_VALUES = [10, 100]
 
 
-def get_name(scoring_rule: str, config):
-    return f"direct_{scoring_rule}_{config.num_obs}n"
-
-
-def get_paths(scoring_rule: str, config):
-    name = get_name(scoring_rule, config)
-    network_path = NETWORK_DIR / f"{name}.keras"
-    history_path = NETWORK_DIR / "history" / f"{name}.json"
-    return network_path, history_path
-
-
-def get_simulators(config):
+def get_simulators(config: TrainingConfig):
     return [
         get_simulator(model=model, config=config, seed=config.seed + i)
         for i, model in enumerate(MODELS)
     ]
 
 
-def build_workflow(scoring_rule: str, config):
+def build_workflow(scoring_rule: str, config: TrainingConfig):
+    keras.utils.set_random_seed(config.seed)
     workflow = bf.ModelComparisonWorkflow(
         simulator=get_simulators(config),
         summary_variables="x",
@@ -55,18 +43,22 @@ def build_workflow(scoring_rule: str, config):
     return workflow
 
 
-def train_one(scoring_rule, config, save=True, overwrite=False):
-    network_path, history_path = get_paths(scoring_rule, config)
+
+def train_one(scoring_rule: str, config: TrainingConfig, *, save=True, overwrite=False):
+    network_path = checkpoint_path(config, scoring_rule=scoring_rule)
+    hist_path = history_path(config, scoring_rule=scoring_rule)
 
     # Skip existing network unless overwrite is requested
-    if save and network_path.exists() and not overwrite:
+    if network_path.exists() and not overwrite:
         print(f"Skip existing network: {network_path}")
         return None, None
 
     print(
-        f"\nTraining direct model comparison: "
-        f"scoring_rule={scoring_rule}, "
+        f"\nTraining direct model comparison\n"
+        f"loss={scoring_rule}\n"
+        f"D={config.num_dims}\n"
         f"N={config.num_obs}\n"
+        f"S={config.summary_dim}\n"
     )
 
     workflow = build_workflow(scoring_rule,config,)
@@ -80,7 +72,7 @@ def train_one(scoring_rule, config, save=True, overwrite=False):
 
     if save:
         network_path.parent.mkdir(parents=True, exist_ok=True,)
-        history_path.parent.mkdir(parents=True, exist_ok=True,)
+        hist_path.parent.mkdir(parents=True, exist_ok=True,)
 
         workflow.approximator.save(network_path)
 
@@ -101,7 +93,7 @@ def train_one(scoring_rule, config, save=True, overwrite=False):
 
     return workflow, history
 
-def train_all(overwrite=False):
+def train_all(*, overwrite=False):
     for scoring_rule, num_obs in itertools.product(SCORING_RULES, NUM_OBS_VALUES):
         config = TrainingConfig(
             num_dims=20,
@@ -112,8 +104,9 @@ def train_all(overwrite=False):
             num_batches=128,
             learning_rate=1e-4,
             seed=2025,
+            summary_base_distribution=None,
         )
-        train_one(scoring_rule, config, save=True, overwrite=overwrite)
+        train_one(scoring_rule=scoring_rule, config=config, overwrite=overwrite)
 
 
 if __name__ == "__main__":

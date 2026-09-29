@@ -53,11 +53,11 @@ Issues = "https://github.com/Yiming Zang/benchmark/issues"
 Source = "https://github.com/Yiming Zang/benchmark"
 
 [tool.hatch.build.targets.wheel]
-packages = ["benchmark"]
+packages = ["examples"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-  "benchmark",
+  "examples",
   "README.md",
   "LICENSE.txt",
   "pyproject.toml",

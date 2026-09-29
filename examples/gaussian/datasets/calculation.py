@@ -17,7 +17,6 @@ class Calculation:
         num_samples: int,
         assumed_model: str,
         df: float | None = None,
-        use_student_t: bool = False,
         rng=None,
         logml_method: str = "log_mean_exp",
     ):
@@ -33,7 +32,6 @@ class Calculation:
         self.num_samples = num_samples
         self.model = assumed_model
         self.df = df
-        self.use_student_t = use_student_t
         self.rng = rng if rng is not None else np.random.default_rng()
         self.logml_method = logml_method
 
@@ -80,7 +78,6 @@ class Calculation:
                 num_dims=self.num_dims,
                 likelihood_std=self.likelihood_std,
                 df=self.df,
-                use_student_t=self.use_student_t,
                 rng=self.rng,
             )
             npe_log_marginal = estimator.log_marginal_npe(method=self.logml_method)
