@@ -19,3 +19,9 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Generated model checkpoints
+examples/**/networks/*.keras
+
+# Generated numerical results
+examples/**/results/**/*.npz

@@ -89,7 +89,7 @@ def train_one(scoring_rule: str, config: TrainingConfig, *, save=True, overwrite
             json.dump(history_data, f, indent=2,)
 
         print(f"Saved network: {network_path}")
-        print(f"Saved history: {history_path}")
+        print(f"Saved history: {hist_path}")
 
     return workflow, history
 
