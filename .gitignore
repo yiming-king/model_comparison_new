@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Local credentials
+.env
+.env.*
+!.env.example

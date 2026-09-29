@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "benchmark"
+version = "0.1.0"
+description = "Benchmark experiments for posterior approximation and model comparison on a Gaussian / Student-t toy family."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+keywords = [
+  "benchmark",
+  "bayesian-inference",
+  "bayesflow",
+  "stan",
+  "posterior-approximation",
+]
+authors = [
+  { name = "Yiming Zang", email = "yiming.zang@tu-dortmund.de" },
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "numpy>=2.5.1,<3",
+  "scipy>=1.18,<2",
+  "pandas>=3.0.5,<4",
+  "matplotlib>=3.11.1,<4",
+  "tensorflow>=2.21,<2.22",
+  "keras>=3.15,<4",
+  "bayesflow==2.0.14",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4,<9",
+  "ruff>=0.6,<1",
+]
+notebooks = [
+  "jupyter",
+  "nbformat>=5.10,<6",
+  "scikit-learn>=1.5,<2",
+]
+
+[project.urls]
+Documentation = "https://github.com/Yiming Zang/benchmark#readme"
+Issues = "https://github.com/Yiming Zang/benchmark/issues"
+Source = "https://github.com/Yiming Zang/benchmark"
+
+[tool.hatch.build.targets.wheel]
+packages = ["benchmark"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "benchmark",
+  "README.md",
+  "LICENSE.txt",
+  "pyproject.toml",
+]
