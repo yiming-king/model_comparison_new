@@ -62,3 +62,9 @@ include = [
   "LICENSE.txt",
   "pyproject.toml",
 ]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true

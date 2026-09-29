@@ -93,7 +93,7 @@ class TrainingConfig:
         """Identifier shared by checkpoint and history files."""
 
         tag = (
-            f"_n{self.num_obs}"
+            f"n{self.num_obs}"
             f"_s{self.summary_dim}"
         )
 

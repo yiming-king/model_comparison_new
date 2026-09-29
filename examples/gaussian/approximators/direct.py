@@ -85,7 +85,7 @@ def train_one(scoring_rule: str, config: TrainingConfig, *, save=True, overwrite
             },
         }
 
-        with open(history_path, "w", encoding="utf-8",) as f:
+        with open(hist_path, "w", encoding="utf-8",) as f:
             json.dump(history_data, f, indent=2,)
 
         print(f"Saved network: {network_path}")

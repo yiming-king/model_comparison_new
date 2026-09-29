@@ -57,8 +57,8 @@ def build_workflow(model: str, config: TrainingConfig):
     return workflow
 
 def train_one(model: str, config: TrainingConfig, *, save=True, overwrite=False):
-    network_path = checkpoint_path(model, config)
-    hist_path = history_path(model, config)
+    network_path = checkpoint_path(config, model=model, )
+    hist_path = history_path(config,model=model,)
 
     # Skip training if the network already exists
     if network_path.exists() and not overwrite:
@@ -90,7 +90,7 @@ def train_one(model: str, config: TrainingConfig, *, save=True, overwrite=False)
                 for key, values in history.history.items()
             },
         }
-        with open(history_path, "w",encoding="utf-8",) as f:
+        with open(hist_path, "w",encoding="utf-8",) as f:
             json.dump(history_data, f, indent=2,)
 
         print(f"Saved network: {network_path}")
