@@ -25,3 +25,4 @@ examples/**/networks/*.keras
 
 # Generated numerical results
 examples/**/results/**/*.npz
+examples/**/results/
