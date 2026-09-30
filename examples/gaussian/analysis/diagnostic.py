@@ -1,5 +1,4 @@
-"""Summary-space diagnostics for the Gaussian case study."""
-# fmt: off
+"""Summary-space diagnostics."""
 
 import os
 
@@ -20,10 +19,6 @@ from .inference import load_approximator
 DIAGNOSTIC_DIR = RESULT_DIR / "diagnostics"
 
 DIAGNOSTICS = ("l2", "linf", "density", "mmd")
-
-# ---------------------------------------------------------------------
-# Paths / IO
-# ---------------------------------------------------------------------
 
 def diagnostic_root(*, method, num_obs, summary_dim, scoring_rule=None):
     """Return the root directory for one diagnostic configuration."""
@@ -83,10 +78,6 @@ def save_npz(values, path, *, overwrite=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(path, **values)
 
-# ---------------------------------------------------------------------
-# Dataset / summary-network helpers
-# ---------------------------------------------------------------------
-
 def load_x(*, split, source_model, num_obs):
     """Load observation arrays for one fixed dataset file."""
     path = DATASET_DIR / f"n{num_obs}" / split / f"{source_model}.npz"
@@ -119,7 +110,7 @@ def indirect_summaries(approximators, x):
     return np.stack([summarize(approximators[model], x) for model in ASSUMED_MODELS], axis=1)
 
 # ---------------------------------------------------------------------
-# L2 / Linf reference
+# L2 / Linf
 # ---------------------------------------------------------------------
 
 def fit_moment_reference(summaries):
@@ -131,40 +122,27 @@ def fit_moment_reference(summaries):
     return mean, chol
 
 def whiten_summaries(summaries, mean, chol):
-    """Whiten summary vectors."""
+    """scaling summary vectors."""
     summaries = np.asarray(summaries, dtype=np.float64)
     centered = summaries - mean
     return np.linalg.solve(chol, centered.T).T
 
 def l2_distance(summaries, mean, chol):
-    """
-    Dimension-normalized L2 diagnostic.
-
-    D_L2 = ||z_white||_2 / sqrt(S)
-    """
     whitened = whiten_summaries(summaries, mean, chol)
     summary_dim = whitened.shape[1]
     return np.linalg.norm(whitened, axis=1) / np.sqrt(summary_dim)
 
 def linf_distance(summaries, mean, chol):
-    """
-    Dimension-normalized Linf diagnostic.
-
-    D_Linf = ||z_white||_inf / sqrt(2 log S)
-    """
     whitened = whiten_summaries(summaries, mean, chol)
     summary_dim = whitened.shape[1]
     scale = np.sqrt(2.0 * np.log(summary_dim)) if summary_dim > 1 else 1.0
     return np.max(np.abs(whitened), axis=1) / scale
 
 # ---------------------------------------------------------------------
-# Kernel / MMD reference
+# Kernel (MMD)
 # ---------------------------------------------------------------------
 
 def mmd_bandwidth2(summaries, *, max_pairs=500_000, seed=2025):
-    """
-    Median heuristic using positive squared pairwise distances.
-    """
     summaries = np.asarray(summaries, dtype=np.float64)
     n = len(summaries)
     if n < 2:
@@ -186,9 +164,6 @@ def mmd_bandwidth2(summaries, *, max_pairs=500_000, seed=2025):
     return max(float(np.median(positive)), 1e-8)
 
 def rbf_kernel_mean(x, y, bandwidth2, *, chunk_size=256):
-    """
-    Exact mean RBF kernel value with bounded memory.
-    """
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
     total = 0.0
@@ -205,9 +180,6 @@ def rbf_kernel_mean(x, y, bandwidth2, *, chunk_size=256):
     return total / count
 
 def cross_kernel_mean_per_point(summaries, reference, bandwidth2, *, summary_chunk=256, reference_chunk=512):
-    """
-    E_y[k(z, y)] for each z.
-    """
     summaries = np.asarray(summaries, dtype=np.float64)
     reference = np.asarray(reference, dtype=np.float64)
     result = np.empty(len(summaries), dtype=np.float64)
@@ -223,14 +195,7 @@ def cross_kernel_mean_per_point(summaries, reference, bandwidth2, *, summary_chu
     return result
 
 def mmd_distance(summaries, reference, bandwidth2, reference_kernel_mean):
-    """
-    RBF-MMD between each summary point and the reference distribution.
 
-    MMD^2(delta_z, P_ref)
-        = 1
-        + E[k(Y,Y')]
-        - 2 E[k(z,Y)]
-    """
     cross_mean = cross_kernel_mean_per_point(summaries, reference, bandwidth2)
     mmd2 = 1.0 + float(reference_kernel_mean) - 2.0 * cross_mean
     return np.sqrt(np.maximum(mmd2, 0.0))
@@ -242,9 +207,9 @@ def mmd_distance(summaries, reference, bandwidth2, reference_kernel_mean):
 def fit_density_flow(
     summaries,
     *,
-    epochs=250,
-    batch_size=128,
-    depth=8,
+    epochs=100,
+    batch_size=64,
+    depth=128,
     widths=(256, 256, 256),
     learning_rate=5e-4,
     patience=20,
@@ -324,12 +289,6 @@ def central_interval(values, *, coverage=0.90):
     return (float(np.quantile(values, alpha)), float(np.quantile(values, 1.0 - alpha)))
 
 def diagnostic_scores(summaries, reference, density_flow, density_center):
-    """
-    Compute all four diagnostics.
-
-    D_density is centered negative log density:
-        -log q(z) - mean_cal[-log q(z)]
-    """
     scores = compute_non_density_diagnostics(summaries, reference)
     scores["d_density"] = density_nll(density_flow, summaries) - density_center
     return scores
@@ -341,12 +300,7 @@ def diagnostic_scores(summaries, reference, density_flow, density_center):
 def fit_indirect_references(
     *, num_obs, summary_dim, density_epochs=250, density_batch_size=128, seed=2025, overwrite=False
 ):
-    """
-    Fit one model-specific reference distribution per NPE.
-
-    M1 network uses reference datasets generated by M1,
-    M2 network uses M2 reference datasets, etc.
-    """
+  
     approximators = load_indirect_approximators(num_obs=num_obs, summary_dim=summary_dim)
     for model_index, model in enumerate(ASSUMED_MODELS):
         ref_path = indirect_reference_path(num_obs=num_obs, summary_dim=summary_dim, model=model)

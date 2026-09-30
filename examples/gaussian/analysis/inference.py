@@ -7,7 +7,6 @@ os.environ["KERAS_BACKEND"] = "tensorflow"
 
 from pathlib import Path
 
-import bayesflow as bf
 import keras
 import numpy as np
 
