@@ -20,7 +20,6 @@ BASE_DIR = SIMULATED_DATASET_DIR
 
 N = wagenmakers.n_trials
 
-
 def sample_seeded_dataset(simulator, seed: int) -> dict[str, np.ndarray]:
     """Draw one dataset without leaking changes to NumPy's global RNG state."""
     state = np.random.get_state()
@@ -30,21 +29,15 @@ def sample_seeded_dataset(simulator, seed: int) -> dict[str, np.ndarray]:
     finally:
         np.random.set_state(state)
 
-
 def save_seeded_datasets(
-    simulator,
-    output_dir: str | Path,
-    seeds: list[int],
-    *,
-    overwrite: bool = False,
+    simulator, output_dir: str | Path, seeds: list[int], *, overwrite: bool = False
 ) -> pd.DataFrame:
     """Save independently seeded simulator draws and their reproducibility manifest."""
     output_dir = Path(output_dir)
     owned_files = [*output_dir.glob("s*.json"), output_dir / "true_parameters.csv"]
     if any(path.exists() for path in owned_files) and not overwrite:
         raise FileExistsError(
-            f"Calibration datasets already exist in {output_dir}; pass --overwrite "
-            "to regenerate them."
+            f"Calibration datasets already exist in {output_dir}; pass --overwrite to regenerate them."
         )
     if overwrite:
         for path in owned_files:
@@ -74,24 +67,17 @@ def save_seeded_datasets(
     manifest.to_csv(output_dir / "true_parameters.csv", index=False)
     return manifest
 
-
 def save_datasets(simulator, folder: str, n_sim: int = N_SIM, overwrite: bool = False):
     out_dir = os.path.join(BASE_DIR, folder)
     if os.path.exists(out_dir) and not overwrite:
-        raise FileExistsError(
-            f"{out_dir} already exists. Pass --overwrite to regenerate it."
-        )
+        raise FileExistsError(f"{out_dir} already exists. Pass --overwrite to regenerate it.")
     os.makedirs(out_dir, exist_ok=True)
 
     data = simulator.sample(n_sim)
     parameter_rows = []
 
     for i in range(n_sim):
-        record = dict(
-            rt=[float(x) for x in data["rt"][i]],
-            condition=[int(x) for x in data["conditions"][i]],
-            N=N,
-        )
+        record = dict(rt=[float(x) for x in data["rt"][i]], condition=[int(x) for x in data["conditions"][i]], N=N)
         path = os.path.join(out_dir, f"s{i}.json")
         with open(path, "w") as f:
             json.dump(record, f)
@@ -103,19 +89,13 @@ def save_datasets(simulator, folder: str, n_sim: int = N_SIM, overwrite: bool = 
                 row[f"{key}_{j}"] = float(value)
         parameter_rows.append(row)
 
-    pd.DataFrame(parameter_rows).to_csv(
-        os.path.join(out_dir, "true_parameters.csv"),
-        index=False,
-    )
-
+    pd.DataFrame(parameter_rows).to_csv(os.path.join(out_dir, "true_parameters.csv"), index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--models", nargs="+", default=["all"])
     parser.add_argument("--n-sim", type=int, default=N_SIM)
-    parser.add_argument(
-        "--seed", type=int, default=2025
-    )  # Random seed for reproducibility
+    parser.add_argument("--seed", type=int, default=2025)  # Random seed for reproducibility
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -126,9 +106,4 @@ if __name__ == "__main__":
 
     selected = SIMULATORS.keys() if args.models == ["all"] else args.models
     for model in selected:
-        save_datasets(
-            SIMULATORS[model],
-            folder=f"simulated_from_{model}",
-            n_sim=args.n_sim,
-            overwrite=args.overwrite,
-        )
+        save_datasets(SIMULATORS[model], folder=f"simulated_from_{model}", n_sim=args.n_sim, overwrite=args.overwrite)

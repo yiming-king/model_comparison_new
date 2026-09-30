@@ -16,19 +16,11 @@ except ImportError:
     from . import wagenmakers
     from ..simulators import SIMULATORS
 
-
 N_SIM = 17
 SOURCE_MODEL = "m3"
 BASE_DIR = SIMULATED_DATASET_DIR
 
-
-def _replace_rt(
-    rt: np.ndarray,
-    conditions: np.ndarray,
-    mask: np.ndarray,
-    mode: str,
-    rng: np.random.Generator,
-) -> None:
+def _replace_rt(rt: np.ndarray, conditions: np.ndarray, mask: np.ndarray, mode: str, rng: np.random.Generator) -> None:
     for condition in np.unique(conditions):
         for sign in (-1.0, 1.0):
             group = (conditions == condition) & (np.sign(rt) == sign)
@@ -47,13 +39,8 @@ def _replace_rt(
             low, high = float(low), float(max(high, low + 1e-6))
             rt[selected] = sign * rng.uniform(low, high, size=int(selected.sum()))
 
-
 def contaminate_rt(
-    rt: np.ndarray,
-    conditions: np.ndarray,
-    kind: str,
-    fraction: float,
-    rng: np.random.Generator,
+    rt: np.ndarray, conditions: np.ndarray, kind: str, fraction: float, rng: np.random.Generator
 ) -> np.ndarray:
     output = np.asarray(rt, dtype=float).copy()
     n_trials = output.shape[0]
@@ -76,21 +63,14 @@ def contaminate_rt(
     _replace_rt(output, conditions, mask, kind, rng)
     return output
 
-
 def save_contaminated_datasets(
-    kind: str,
-    fraction: float = 0.30,
-    n_sim: int = N_SIM,
-    seed: int = 2025,
-    overwrite: bool = False,
+    kind: str, fraction: float = 0.30, n_sim: int = N_SIM, seed: int = 2025, overwrite: bool = False
 ) -> Path:
     suffix = int(round(100 * fraction))
     folder = f"{SOURCE_MODEL}_{kind}_{suffix}"
     out_dir = BASE_DIR / folder
     if out_dir.exists() and not overwrite:
-        raise FileExistsError(
-            f"{out_dir} already exists. Pass --overwrite to regenerate it."
-        )
+        raise FileExistsError(f"{out_dir} already exists. Pass --overwrite to regenerate it.")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     rng = np.random.default_rng(seed)
@@ -113,12 +93,7 @@ def save_contaminated_datasets(
         with (out_dir / f"s{i}.json").open("w") as f:
             json.dump(record, f)
 
-        row = {
-            "id": f"s{i}",
-            "source_model": SOURCE_MODEL,
-            "contamination": kind,
-            "fraction": fraction,
-        }
+        row = {"id": f"s{i}", "source_model": SOURCE_MODEL, "contamination": kind, "fraction": fraction}
         for key in ("alpha", "nu", "tau"):
             for j, value in enumerate(data[key][i].reshape(-1)):
                 row[f"{key}_{j}"] = float(value)
@@ -126,7 +101,6 @@ def save_contaminated_datasets(
 
     pd.DataFrame(parameter_rows).to_csv(out_dir / "true_parameters.csv", index=False)
     return out_dir
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -139,10 +113,6 @@ if __name__ == "__main__":
 
     for offset, kind in enumerate(args.kinds):
         path = save_contaminated_datasets(
-            kind=kind,
-            fraction=args.fraction,
-            n_sim=args.n_sim,
-            seed=args.seed + offset,
-            overwrite=args.overwrite,
+            kind=kind, fraction=args.fraction, n_sim=args.n_sim, seed=args.seed + offset, overwrite=args.overwrite
         )
         print(path)

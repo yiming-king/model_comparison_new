@@ -2,8 +2,4 @@
 
 from .datasets import load_benchmark_dataset, load_json_directory, load_simulated_dataset
 
-__all__ = (
-    "load_json_directory",
-    "load_simulated_dataset",
-    "load_benchmark_dataset",
-)
+__all__ = ("load_json_directory", "load_simulated_dataset", "load_benchmark_dataset")

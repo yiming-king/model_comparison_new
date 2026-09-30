@@ -7,13 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ..config import (
-    ASSUMED_MODELS,
-    BENCHMARK_DATASET_DIR,
-    SIMULATED_DATASET_DIR,
-    SIMULATED_DATASETS,
-)
-
+from ..config import ASSUMED_MODELS, BENCHMARK_DATASET_DIR, SIMULATED_DATASET_DIR, SIMULATED_DATASETS
 
 _SIMULATED_INFO = {
     "simulated_from_m0": ("m0", True),
@@ -25,13 +19,11 @@ _SIMULATED_INFO = {
     "m3_fast_slow_30": ("m3", False),
 }
 
-
 def _id_sort_key(path: Path) -> tuple[str, int, str]:
     match = re.fullmatch(r"(.+?)(\d+)", path.stem)
     if match is None:
         return path.stem, -1, path.stem
     return match.group(1), int(match.group(2)), path.stem
-
 
 def load_json_directory(path: str | Path) -> dict:
     """Load JSON observations as (dataset, trial, [rt, condition])."""
@@ -50,12 +42,7 @@ def load_json_directory(path: str | Path) -> dict:
             record = json.load(stream)
         rt = np.asarray(record["rt"], dtype=np.float64)
         condition = np.asarray(record["condition"], dtype=np.float64)
-        if (
-            rt.ndim != 1
-            or condition.ndim != 1
-            or len(rt) != len(condition)
-            or len(rt) != record["N"]
-        ):
+        if rt.ndim != 1 or condition.ndim != 1 or len(rt) != len(condition) or len(rt) != record["N"]:
             raise ValueError(f"Invalid trial dimensions in {file}")
         if n_trials is None:
             n_trials = len(rt)
@@ -65,14 +52,12 @@ def load_json_directory(path: str | Path) -> dict:
 
     return {"data": np.stack(data), "ids": [file.stem for file in files]}
 
-
 def _load_true_parameters(directory: Path, ids: list[str]) -> pd.DataFrame:
     parameters = pd.read_csv(directory / "true_parameters.csv", dtype={"id": str})
     parameter_ids = parameters["id"].tolist()
     if len(parameter_ids) != len(ids) or set(parameter_ids) != set(ids):
         raise ValueError(f"Parameter IDs do not match JSON filenames in {directory}")
     return parameters
-
 
 def load_simulated_dataset(name: str) -> dict:
     """Load one fixed simulated group, including its contamination status."""
@@ -89,17 +74,13 @@ def load_simulated_dataset(name: str) -> dict:
         "well_specified": well_specified,
     }
 
-
 def load_benchmark_dataset(model: str) -> dict:
     """Load one generating model's fixed benchmark datasets."""
     if model not in ASSUMED_MODELS:
         raise ValueError(f"Unknown benchmark model: {model}")
     directory = BENCHMARK_DATASET_DIR / model
     loaded = load_json_directory(directory)
-    manifest = pd.read_csv(
-        BENCHMARK_DATASET_DIR / "dataset_manifest.csv",
-        dtype={"generating_model": str, "id": str},
-    )
+    manifest = pd.read_csv(BENCHMARK_DATASET_DIR / "dataset_manifest.csv", dtype={"generating_model": str, "id": str})
     model_manifest = manifest.loc[manifest["generating_model"] == model].copy()
     manifest_ids = model_manifest["id"].tolist()
     if len(manifest_ids) != len(loaded["ids"]) or set(manifest_ids) != set(loaded["ids"]):

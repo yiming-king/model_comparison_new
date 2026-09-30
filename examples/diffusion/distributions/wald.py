@@ -6,7 +6,6 @@ from bayesflow.types import Tensor
 from .normal import normal_lcdf
 from .utils import log1m_exp
 
-
 @utils.register_keras_serializable("bayesflow.utils")
 def wald_lpdf(x: Tensor, alpha: Tensor, nu: Tensor) -> Tensor:
     lpdf = (
@@ -18,13 +17,11 @@ def wald_lpdf(x: Tensor, alpha: Tensor, nu: Tensor) -> Tensor:
 
     return lpdf
 
-
 @utils.register_keras_serializable("bayesflow.utils")
 def wald_lcdf(x: Tensor, alpha: Tensor, nu: Tensor) -> Tensor:
     dtype, z, second = _wald_cdf_terms(x, alpha, nu)
     value = tf.reduce_logsumexp(tf.stack([normal_lcdf(z), second]), axis=0)
     return tf.cast(value, dtype)
-
 
 def _wald_cdf_terms(x, alpha, nu):
     # Accumulate the cancellation-prone second term in double precision, even
@@ -37,7 +34,6 @@ def _wald_cdf_terms(x, alpha, nu):
     second = 2.0 * alpha * nu + normal_lcdf(-(nu * x + alpha) / root)
     return dtype, z, second
 
-
 @utils.register_keras_serializable("bayesflow.utils")
 def wald_lccdf(x: Tensor, alpha: Tensor, nu: Tensor) -> Tensor:
     # Survival = Phi(-z) - exp(2*alpha*nu)*Phi(-(nu*x+alpha)/sqrt(x)).
@@ -47,10 +43,8 @@ def wald_lccdf(x: Tensor, alpha: Tensor, nu: Tensor) -> Tensor:
     value = first + log1m_exp(second - first)
     return tf.cast(value, dtype)
 
-
 @utils.register_keras_serializable("bayesflow.utils")
 def rdm_lpdf(rt: Tensor, alpha: Tensor, nu: Tensor, tau: Tensor) -> Tensor:
-
     # rt.shape = (batch_size, num_trials)
     # alpha.shape = (batch_size, num_trials, 2)
     # nu.shape = (batch_size, 1, 2)

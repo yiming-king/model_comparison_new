@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 import json
 
-
 class Wagenmakers:
     def __init__(self):
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -15,9 +14,7 @@ class Wagenmakers:
         self._df["id"] = self.df["id"].factorize()[0]
 
         # recode rt to pos when correct and neg when incorrect
-        self._df["rt"] = np.where(
-            self.df["stim_cat"] == self.df["response"], self.df["rt"], -self.df["rt"]
-        )
+        self._df["rt"] = np.where(self.df["stim_cat"] == self.df["response"], self.df["rt"], -self.df["rt"])
         # binary coding for condition
         self._df["speed"] = np.where(self.df["condition"] == "speed", 1, 0)
 
@@ -44,9 +41,7 @@ class Wagenmakers:
     def df_stan(self):
         def stanify(df):
             return dict(
-                rt=list(df["rt"][: self.n_trials]),
-                condition=list(df["speed"][: self.n_trials]),
-                N=self.n_trials,
+                rt=list(df["rt"][: self.n_trials]), condition=list(df["speed"][: self.n_trials]), N=self.n_trials
             )
 
         return self.df_grouped.apply(stanify)
@@ -62,9 +57,7 @@ class Wagenmakers:
     @property
     def df_array(self):
         if self._df_array is None:
-            df_array = np.zeros(
-                (17, self.n_trials, 2)
-            )  # (participants, trials, rt + condition)
+            df_array = np.zeros((17, self.n_trials, 2))  # (participants, trials, rt + condition)
 
             for subj, df in self.df_grouped:
                 df_array[subj, : self.n_trials, 0] = df["rt"][: self.n_trials]
@@ -82,11 +75,7 @@ class Wagenmakers:
         if data is None:
             data = self.df_array
         data = np.asarray(data, dtype=np.float32)
-        return {
-            "rt": data[..., 0],
-            "conditions": data[..., 1],
-        }
-
+        return {"rt": data[..., 0], "conditions": data[..., 1]}
 
 wagenmakers = Wagenmakers()
 
