@@ -1,4 +1,6 @@
 """Compute inference errors against the analytical gold standard."""
+# fmt: off
+
 import os
 
 os.environ["KERAS_BACKEND"] = "tensorflow"

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from ..config import ASSUMED_MODELS, RESULT_DIR
-from .metrics import load_npz, metrics_path
+from .metric import load_npz, metrics_path
 
 THRESHOLD_DIR = RESULT_DIR / "thresholds"
 
