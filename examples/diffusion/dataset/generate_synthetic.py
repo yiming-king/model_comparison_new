@@ -4,9 +4,11 @@ import os
 from pathlib import Path
 
 try:
+    from examples.diffusion.config import SIMULATED_DATASET_DIR
     from examples.diffusion.dataset.dataset import wagenmakers
     from simulators import SIMULATORS
 except ImportError:
+    from ..config import SIMULATED_DATASET_DIR
     from . import wagenmakers
     from ..simulators import SIMULATORS
 
@@ -14,7 +16,7 @@ import pandas as pd
 import numpy as np
 
 N_SIM = 17
-BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "json")
+BASE_DIR = SIMULATED_DATASET_DIR
 
 N = wagenmakers.n_trials
 

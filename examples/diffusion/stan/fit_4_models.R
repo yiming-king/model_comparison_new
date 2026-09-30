@@ -6,7 +6,8 @@ rstan::rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
 # Results are written to:
-#   stan/results_4_models/{dataset}/{m0,m1,m2,m3}/bridgesampling.csv
+#   results/gold/{benchmark,simulated}/{dataset}/{m0,m1,m2,m3}/bridgesampling.csv
+# The empirical default remains under stan/results_4_models/empirical.
 # Full Stan objects remain in {id}.Rdata, and light posterior draws are exported
 # to posterior_draws/{id}.csv for Python diagnostics.
 
@@ -104,16 +105,34 @@ file_arg <- command_args[grep("^--file=", command_args)][1]
 script_path <- normalizePath(sub("^--file=", "", file_arg))
 stan_dir <- dirname(script_path)
 base_dir <- dirname(stan_dir)
+simulated_datasets <- c(
+  "simulated_from_m0", "simulated_from_m1", "simulated_from_m2", "simulated_from_m3",
+  "m3_fast_30", "m3_slow_30", "m3_fast_slow_30"
+)
+benchmark_models <- c("m0", "m1", "m2", "m3")
+
 data_path <- if (nzchar(data_path_arg)) {
   normalizePath(data_path_arg, mustWork = TRUE)
+} else if (dataset == "empirical") {
+  file.path(base_dir, "dataset", "json", "empirical")
+} else if (dataset %in% simulated_datasets) {
+  file.path(base_dir, "results", "datasets", "simulated", dataset)
+} else if (dataset %in% benchmark_models) {
+  file.path(base_dir, "results", "datasets", "benchmark", dataset)
 } else {
-  file.path(base_dir, "dataset", "json", dataset)
+  stop("Pass an explicit dataset input directory as argument 5 for: ", dataset)
 }
 stan_file <- file.path(stan_dir, "rdm_4_models.stan")
 results_root <- if (nzchar(results_root_arg)) {
   normalizePath(results_root_arg, mustWork = FALSE)
+} else if (dataset == "empirical") {
+  file.path(stan_dir, "results_4_models", "empirical")
+} else if (dataset %in% simulated_datasets) {
+  file.path(base_dir, "results", "gold", "simulated", dataset)
+} else if (dataset %in% benchmark_models) {
+  file.path(base_dir, "results", "gold", "benchmark", dataset)
 } else {
-  file.path(stan_dir, "results_4_models", dataset)
+  stop("Pass an explicit results directory as argument 6 for: ", dataset)
 }
 
 data_files <- list.files(data_path, pattern = "\\.json$", full.names = FALSE)

@@ -18,7 +18,7 @@ from .simulators import get_simulator
 
 # General settings
 MODELS = ASSUMED_MODELS
-SUMMARY_DIMS = [20, 40,80]
+SUMMARY_DIMS = [20, 40, 80]
 NUM_OBS_VALUES = [ 10, 100]
 
 

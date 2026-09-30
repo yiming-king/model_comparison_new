@@ -8,16 +8,18 @@ import numpy as np
 import pandas as pd
 
 try:
+    from examples.diffusion.config import SIMULATED_DATASET_DIR
     from examples.diffusion.dataset.dataset import wagenmakers
     from simulators import SIMULATORS
 except ImportError:
+    from ..config import SIMULATED_DATASET_DIR
     from . import wagenmakers
     from ..simulators import SIMULATORS
 
 
 N_SIM = 17
 SOURCE_MODEL = "m3"
-BASE_DIR = Path(__file__).resolve().parent / "json"
+BASE_DIR = SIMULATED_DATASET_DIR
 
 
 def _replace_rt(
