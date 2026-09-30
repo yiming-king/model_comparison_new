@@ -1,5 +1,4 @@
 """Compute inference errors against the analytical gold standard."""
-# fmt: off
 
 import os
 
@@ -78,9 +77,8 @@ def compute_posterior_mmd(estimated_samples, gold_samples, *, num_samples=1024):
         for model_index in range(num_models):
             estimated = estimated_samples[dataset_index, model_index, :sample_count]
             gold = gold_samples[dataset_index, model_index, :sample_count]
-            posterior_mmd[dataset_index, model_index] = float(
-                mmd(tf.convert_to_tensor(estimated), tf.convert_to_tensor(gold))
-            )
+            mmd2 = float(mmd(tf.convert_to_tensor(estimated), tf.convert_to_tensor(gold),))
+            posterior_mmd[dataset_index, model_index] = np.sqrt(max(mmd2, 0.0))
     return posterior_mmd
 
 def compute_indirect_metrics(inference, gold, *, num_mmd_samples=1024):

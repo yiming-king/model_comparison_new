@@ -129,14 +129,11 @@ def whiten_summaries(summaries, mean, chol):
 
 def l2_distance(summaries, mean, chol):
     whitened = whiten_summaries(summaries, mean, chol)
-    summary_dim = whitened.shape[1]
-    return np.linalg.norm(whitened, axis=1) / np.sqrt(summary_dim)
+    return np.linalg.norm(whitened, axis=1) 
 
 def linf_distance(summaries, mean, chol):
     whitened = whiten_summaries(summaries, mean, chol)
-    summary_dim = whitened.shape[1]
-    scale = np.sqrt(2.0 * np.log(summary_dim)) if summary_dim > 1 else 1.0
-    return np.max(np.abs(whitened), axis=1) / scale
+    return np.max(np.abs(whitened), axis=1) 
 
 # ---------------------------------------------------------------------
 # Kernel (MMD)
@@ -207,9 +204,9 @@ def mmd_distance(summaries, reference, bandwidth2, reference_kernel_mean):
 def fit_density_flow(
     summaries,
     *,
-    epochs=100,
-    batch_size=64,
-    depth=128,
+    epochs=256,
+    batch_size=128,
+    depth=6,
     widths=(256, 256, 256),
     learning_rate=5e-4,
     patience=20,
