@@ -32,3 +32,5 @@ examples/**/results/
 examples/diffusion/results/*
 !examples/diffusion/results/datasets/
 !examples/diffusion/results/datasets/**/*.npz
+!examples/diffusion/results/gold/
+examples/diffusion/results/gold/**/*.Rdata

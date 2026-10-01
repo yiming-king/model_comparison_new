@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ..config import ASSUMED_MODELS, BENCHMARK_DATASET_DIR, SIMULATED_DATASET_DIR, SIMULATED_DATASETS
+from ..config import ASSUMED_MODELS, BENCHMARK_DATASET_DIR, NUM_TRIALS, SIMULATED_DATASET_DIR, SIMULATED_DATASETS
 
 _SIMULATED_INFO = {
     "simulated_from_m0": ("m0", True),
@@ -44,6 +44,8 @@ def load_json_directory(path: str | Path) -> dict:
         condition = np.asarray(record["condition"], dtype=np.float64)
         if rt.ndim != 1 or condition.ndim != 1 or len(rt) != len(condition) or len(rt) != record["N"]:
             raise ValueError(f"Invalid trial dimensions in {file}")
+        if len(rt) != NUM_TRIALS or not np.isfinite(rt).all() or not np.isin(condition, [0, 1]).all():
+            raise ValueError(f"Invalid observation values in {file}")
         if n_trials is None:
             n_trials = len(rt)
         elif len(rt) != n_trials:

@@ -1,6 +1,6 @@
 """Load Stan and bridge-sampling gold standards for the diffusion case study."""
 
-from pathlib import Path
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -44,16 +44,16 @@ def load_convergence(split, source, candidate_model, ids):
     else:
         path = model_dir / "convergence_diagnostics.csv"
         if not path.exists():
-            raise FileNotFoundError(f"Convergence diagnostics not found: {path}")
+            # Older simulated gold has bridge estimates and draws, but no fit diagnostics.
+            return np.zeros(len(ids), dtype=bool), False
         table = pd.read_csv(path, dtype={"id": str})[["id", "converged"]]
     table = table.set_index("id", verify_integrity=True)
-    missing = set(ids) - set(table.index)
-    if missing:
-        raise ValueError(f"Missing convergence results for {candidate_model}: {sorted(missing)}")
+    if set(ids) != set(table.index):
+        raise ValueError(f"Convergence IDs do not match observations for {candidate_model}")
     values = table.loc[ids, "converged"]
     if values.dtype != bool:
         values = values.astype(str).str.lower().isin(["true", "1", "t"])
-    return values.to_numpy(dtype=bool)
+    return values.to_numpy(dtype=bool), True
 
 def load_posterior_draws(split, source, candidate_model, dataset_id):
     path = gold_root(split, source) / candidate_model / "posterior_draws" / f"{dataset_id}.csv"
@@ -74,17 +74,25 @@ def load_gold(split, source):
     logml = np.empty((num_datasets, num_models), dtype=np.float64)
     bridge_sd = np.empty((num_datasets, num_models), dtype=np.float64)
     converged = np.empty((num_datasets, num_models), dtype=bool)
+    convergence_available = np.empty((num_datasets, num_models), dtype=bool)
     for model_index, model in enumerate(ASSUMED_MODELS):
         table = load_bridge_table(split, source, model).set_index("id", verify_integrity=True)
-        missing = set(ids) - set(table.index)
-        if missing:
-            raise ValueError(f"Missing bridge results for {model}: {sorted(missing)}")
+        if set(ids) != set(table.index):
+            raise ValueError(f"Bridge IDs do not match observations for {model}")
         logml[:, model_index] = table.loc[ids, "estimate"].to_numpy(dtype=np.float64)
         if "sd" in table.columns:
             bridge_sd[:, model_index] = table.loc[ids, "sd"].to_numpy(dtype=np.float64)
         else:
             bridge_sd[:, model_index] = np.nan
-        converged[:, model_index] = load_convergence(split, source, model, ids)
+        converged[:, model_index], available = load_convergence(split, source, model, ids)
+        convergence_available[:, model_index] = available
+    if not convergence_available.all():
+        warnings.warn(
+            f"Convergence diagnostics are unavailable for {split}/{source}; "
+            "unknown fits are marked unconverged.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     pmp = softmax(logml, axis=-1)
     return {
         "id": np.asarray(ids),
@@ -95,5 +103,6 @@ def load_gold(split, source):
         "bridge_sd": bridge_sd,
         "pmp": pmp,
         "converged": converged,
+        "convergence_available": convergence_available,
         "all_converged": np.all(converged, axis=1),
     }

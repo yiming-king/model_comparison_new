@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..config import ASSUMED_MODELS, NUM_TRIALS, RESULT_DIR
+from ..config import ASSUMED_MODELS, RESULT_DIR
 from .gold import load_gold, load_posterior_draws
 from .inference import INFERENCE_DIR, inference_path
 
@@ -81,17 +81,22 @@ def squared_mmd_rbf(x, y, bandwidth2):
 
 def compute_posterior_mmd(inference, *, split, source, num_samples=1024, seed=2025):
     """
-    Compute posterior MMD for every dataset and candidate model.
+    Compute posterior MMD where Stan draws are part of the evaluation archive.
 
     MMD is computed in the unconstrained parameter space:
         log(alpha), log(nu), logit(tau)
+
+    The benchmark archive keeps all matching-model draws, but only a subset
+    of nonmatching-model draws. Those benchmark cells are not evaluated.
     """
     ids = inference["id"]
     num_datasets = len(ids)
     num_models = len(ASSUMED_MODELS)
-    posterior_mmd = np.empty((num_datasets, num_models), dtype=np.float64)
-    bandwidth2_values = np.empty((num_datasets, num_models), dtype=np.float64)
+    posterior_mmd = np.full((num_datasets, num_models), np.nan, dtype=np.float64)
+    bandwidth2_values = np.full((num_datasets, num_models), np.nan, dtype=np.float64)
     for model_index, model in enumerate(ASSUMED_MODELS):
+        if split == "benchmark" and model != source:
+            continue
         npe_draws = np.asarray(inference[f"posterior_{model}"], dtype=np.float64)
         for dataset_index, dataset_id in enumerate(ids):
             stan_draws = load_posterior_draws(split, source, model, str(dataset_id))
@@ -136,6 +141,7 @@ def compute_indirect_metrics(inference, gold, *, split, source, num_mmd_samples=
         "generating_model": inference["generating_model"],
         "well_specified": inference["well_specified"],
         "posterior_mmd": posterior_mmd,
+        "posterior_mmd_available": np.isfinite(posterior_mmd),
         "posterior_rbf_bandwidth2": (posterior_bandwidth2),
         "signed_logml_error": (signed_logml_error),
         "absolute_logml_error": (absolute_logml_error),
@@ -145,6 +151,7 @@ def compute_indirect_metrics(inference, gold, *, split, source, num_mmd_samples=
         "importance_ess": inference["importance_ess"],
         "importance_ess_ratio": (importance_ess_ratio),
         "converged": gold["converged"],
+        "convergence_available": gold["convergence_available"],
         "all_converged": gold["all_converged"],
     }
 
@@ -169,6 +176,7 @@ def compute_direct_metrics(inference, gold):
         "absolute_pmp_error": (absolute_pmp_error),
         "pmp_l1_error": pmp_l1_error,
         "converged": gold["converged"],
+        "convergence_available": gold["convergence_available"],
         "all_converged": gold["all_converged"],
     }
 
