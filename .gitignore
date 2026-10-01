@@ -26,3 +26,9 @@ examples/**/networks/*.keras
 # Generated numerical results
 examples/**/results/**/*.npz
 examples/**/results/
+
+# Fixed diffusion datasets are shared for GPU evaluation.
+!examples/diffusion/results/
+examples/diffusion/results/*
+!examples/diffusion/results/datasets/
+!examples/diffusion/results/datasets/**/*.npz
