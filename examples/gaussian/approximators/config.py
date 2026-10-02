@@ -55,7 +55,7 @@ class TrainingConfig:
 
     seed: int = 2025
 
-    standardize: str | None = "all" # standardize 
+    standardize: str | None = "all" # standardize
     summary_base_distribution: str | None = None
 
     def __post_init__(self) -> None:
