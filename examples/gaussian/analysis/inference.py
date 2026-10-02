@@ -13,7 +13,7 @@ import numpy as np
 from ..analytic.gold import compute_pmp
 from ..approximators.config import TrainingConfig, checkpoint_path
 from ..approximators.estimation import MarginalLikelihoodEstimator
-from ..config import ASSUMED_MODELS, DATASET_DIR, MODEL_SPECS, RESULT_DIR
+from ..config import ASSUMED_MODELS, DATASET_DIR, MODEL_SPECS, RESULT_DIR, get_result_dir
 from ..datasets.datasets import load_datasets
 
 INFERENCE_DIR = RESULT_DIR / "inference"
@@ -30,19 +30,20 @@ def save_inference(results, path, *, overwrite=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(path, **results)
 
-def inference_path(*, method, split, source_model, num_obs, summary_dim, scoring_rule=None):
+def inference_path(*, method, split, source_model, num_obs, summary_dim, scoring_rule=None, variant="baseline"):
     """Return output path for one inference result."""
     if method == "indirect":
         name = f"indirect_s{summary_dim}"
+        root = get_result_dir(variant) / "inference"
     elif method == "direct":
         if scoring_rule is None:
             raise ValueError("scoring_rule is required for direct inference")
         name = f"direct_{scoring_rule}_s{summary_dim}"
     else:
         raise ValueError("method must be 'indirect' or 'direct'")
-    return INFERENCE_DIR / f"n{num_obs}" / split / name / f"{source_model}.npz"
+    return (root if method == "indirect" else INFERENCE_DIR) / f"n{num_obs}" / split / name / f"{source_model}.npz"
 
-def evaluate_indirect(datasets, *, num_obs, summary_dim, num_samples=2048, seed=2025):
+def evaluate_indirect(datasets, *, num_obs, summary_dim, num_samples=2048, seed=2025, variant="baseline"):
     """Run indirect NPE inference for all assumed models."""
     x = np.asarray(datasets["x"], dtype=np.float32)
     ids = datasets["id"]
@@ -58,7 +59,7 @@ def evaluate_indirect(datasets, *, num_obs, summary_dim, num_samples=2048, seed=
         config = TrainingConfig(
             num_dims=num_dims, num_obs=num_obs, summary_dim=summary_dim, summary_base_distribution="normal"
         )
-        approximator = load_approximator(checkpoint_path(config, model=model))
+        approximator = load_approximator(checkpoint_path(config, model=model, variant=variant))
         # Summary-space representation
         summaries[:, model_index] = approximator.summarize(conditions={"x": x})
         # Posterior samples
@@ -107,14 +108,15 @@ def evaluate_direct(datasets, *, num_obs, summary_dim, scoring_rule):
         "summaries": np.asarray(estimates["_summaries"]),
     }
 
-def run_indirect_file(*, split, source_model, num_obs, summary_dim, num_samples=2048, seed=2025, overwrite=False):
+def run_indirect_file(*, split, source_model, num_obs, summary_dim, num_samples=2048, seed=2025, overwrite=False, variant="baseline"):
     """Run and save indirect inference for one stored dataset file."""
     dataset_path = DATASET_DIR / f"n{num_obs}" / split / f"{source_model}.npz"
     output_path = inference_path(
-        method="indirect", split=split, source_model=source_model, num_obs=num_obs, summary_dim=summary_dim
+        method="indirect", split=split, source_model=source_model, num_obs=num_obs, summary_dim=summary_dim,
+        variant=variant
     )
     datasets = load_datasets(dataset_path)
-    results = evaluate_indirect(datasets, num_obs=num_obs, summary_dim=summary_dim, num_samples=num_samples, seed=seed)
+    results = evaluate_indirect(datasets, num_obs=num_obs, summary_dim=summary_dim, num_samples=num_samples, seed=seed, variant=variant)
     save_inference(results, output_path, overwrite=overwrite)
     print(f"Saved: {output_path}")
 

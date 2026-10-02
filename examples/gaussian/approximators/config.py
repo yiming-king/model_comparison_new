@@ -51,8 +51,11 @@ class TrainingConfig:
     num_batches: int = 128
 
     learning_rate: float = 1e-4
+    learning_rate_schedule: str = 'cosine' # cosine decay
+
     seed: int = 2025
 
+    standardize: str | None = "all" # standardize 
     summary_base_distribution: str | None = None
 
     def __post_init__(self) -> None:
@@ -86,6 +89,22 @@ class TrainingConfig:
             raise ValueError(
                 "summary_base_distribution must be "
                 "None or 'normal'"
+            )
+        if self.learning_rate_schedule not in (
+            "cosine",
+            "constant",
+        ):
+            raise ValueError(
+                "learning_rate_schedule must be "
+                "'cosine' or 'constant'"
+            )
+
+        if self.standardize not in (
+            "all",
+            None,
+        ):
+            raise ValueError(
+                "standardize must be 'all' or None"
             )
 
     @property
@@ -126,36 +145,42 @@ def run_name(
 
     return f"{prefix}_{config.network_tag}"
 
+def network_root(variant: str = "baseline"):
+    if variant == "baseline":
+        return NETWORK_DIR
+
+    return NETWORK_DIR / "ablation" / variant
 
 def checkpoint_path(
     config: TrainingConfig,
     *,
     model: str | None = None,
     scoring_rule: str | None = None,
+    variant: str = "baseline",
 ):
-    """Return the .keras checkpoint path."""
-
     name = run_name(
         config,
         model=model,
         scoring_rule=scoring_rule,
     )
 
-    return NETWORK_DIR / f"{name}.keras"
-
+    return network_root(variant) / f"{name}.keras"
 
 def history_path(
     config: TrainingConfig,
     *,
     model: str | None = None,
     scoring_rule: str | None = None,
+    variant: str = "baseline",
 ):
-    """Return the training-history JSON path."""
-
     name = run_name(
         config,
         model=model,
         scoring_rule=scoring_rule,
     )
 
-    return NETWORK_DIR / "history" / f"{name}.json"
+    return (
+        network_root(variant)
+        / "history"
+        / f"{name}.json"
+    )

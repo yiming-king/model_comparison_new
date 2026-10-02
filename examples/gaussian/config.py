@@ -81,3 +81,11 @@ ASSUMED_MODELS = ("m1", "m2", "m3", "m4")
 
 # Models used to generate evaluation datasets
 SOURCE_MODELS = tuple(MODEL_SPECS)
+
+def get_result_dir(
+    variant: str = "baseline",
+):
+    if variant == "baseline":
+        return RESULT_DIR
+
+    return RESULT_DIR / "ablation" / variant

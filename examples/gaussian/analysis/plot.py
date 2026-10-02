@@ -268,6 +268,242 @@ def plot_metric_grid(runs, metric="pmp", *, output=None, ylim=None,
     return fig, axes
 
 
+RECOVERY_LOSSES = ("cross_entropy", "exponential", "logistic")
+RECOVERY_METHOD_COLORS = {"indirect": "#0072B2", "direct": "#E69F00"}
+RECOVERY_METHOD_MARKERS = {"indirect": "o", "direct": "^"}
+RECOVERY_SOURCE_COLORS = (
+    "#F0E442", "#E69F00", "#009E73", "#CC79A7",
+    "#56B4E9", "#D55E00", "#0072B2", "#E011CF",
+    "#999999", "#1F03EE", "#882255", "#44AA99",
+)
+
+
+def load_pmp_recovery_data(indirect_runs, direct_runs, *, summary_dim=80):
+    """Align S=4D indirect, three direct losses, and gold PMP by dataset/model."""
+    selected = [frame for frame in indirect_runs.values()
+                if int(frame.summary_dim.iloc[0]) == summary_dim]
+    if len(selected) != 1:
+        raise ValueError(f"Expected one indirect S={summary_dim} run, found {len(selected)}")
+    indirect = selected[0].set_index(KEYS).sort_index()
+    if not indirect.index.is_unique:
+        raise ValueError("Indirect PMP has duplicate dataset/model keys")
+    direct_by_loss = {}
+    for frame in direct_runs.values():
+        losses = frame.scoring_rule.unique()
+        if len(losses) != 1 or losses[0] in direct_by_loss:
+            raise ValueError("Each direct run must have one distinct scoring rule")
+        direct_by_loss[losses[0]] = frame
+    if set(direct_by_loss) != set(RECOVERY_LOSSES):
+        raise ValueError(f"Direct runs must contain {RECOVERY_LOSSES}")
+
+    frames = []
+    for loss in RECOVERY_LOSSES:
+        direct = direct_by_loss[loss].set_index(KEYS).sort_index()
+        if not direct.index.is_unique or not indirect.index.equals(direct.index):
+            raise ValueError(f"Indirect/direct dataset keys differ for {loss}")
+        if not direct.scoring_rule.eq(loss).all():
+            raise ValueError(f"Direct scoring rule differs from {loss}")
+        if not np.array_equal(indirect.gold_pmp.to_numpy(), direct.gold_pmp.to_numpy()):
+            raise ValueError(f"Gold PMP differs for {loss}")
+        frame = pd.DataFrame({
+            "gold_pmp": indirect.gold_pmp,
+            "indirect_pmp": indirect.estimated_pmp,
+            "direct_pmp": direct.estimated_pmp,
+        }).reset_index()
+        frame["scoring_rule"] = loss
+        frame["summary_dim"] = summary_dim
+        frames.append(frame)
+    data = pd.concat(frames, ignore_index=True)
+    values = data[["gold_pmp", "indirect_pmp", "direct_pmp"]].to_numpy(float)
+    if not np.isfinite(values).all() or (values < 0).any() or (values > 1).any():
+        raise ValueError("PMP values must be finite and in [0, 1]")
+    return data
+
+
+def _recovery_facet_strips(fig, axes):
+    """Use the same facet strips as the reference PMP comparison notebook."""
+    for ax, model in zip(axes[0], MODELS, strict=True):
+        pos = ax.get_position()
+        strip = fig.add_axes([pos.x0, pos.y1 + .004, pos.width,
+                              .55 / fig.get_figheight()])
+        strip.set_facecolor("0.85")
+        strip.text(.5, .5, rf"$M_{{{model[1:]}}}$", ha="center", va="center", fontsize=21)
+        strip.set(xticks=[], yticks=[])
+        for spine in strip.spines.values():
+            spine.set_color("0.35")
+    for ax, loss in zip(axes[:, -1], RECOVERY_LOSSES, strict=True):
+        pos = ax.get_position()
+        strip = fig.add_axes([pos.x1 + .004, pos.y0, .058, pos.height])
+        strip.set_facecolor("0.85")
+        strip.text(.5, .5, f"{LOSS_NAMES[loss]} loss", rotation=-90,
+                   ha="center", va="center", fontsize=19)
+        strip.set(xticks=[], yticks=[])
+        for spine in strip.spines.values():
+            spine.set_color("0.35")
+
+
+def _save_recovery_figure(fig, output_stem, dpi):
+    if output_stem is None:
+        return
+    stem = Path(output_stem)
+    stem.parent.mkdir(parents=True, exist_ok=True)
+    for suffix in (".png", ".pdf"):
+        path = stem.with_suffix(suffix)
+        fig.savefig(path, dpi=dpi if suffix == ".png" else None,
+                    bbox_inches="tight")
+        print(f"Saved: {path}")
+
+
+def _validate_recovery_data(data):
+    required = set(KEYS) | {"scoring_rule", "summary_dim", "gold_pmp",
+                            "indirect_pmp", "direct_pmp"}
+    missing = required - set(data.columns)
+    if missing:
+        raise ValueError(f"Missing PMP recovery columns: {sorted(missing)}")
+    if set(data.scoring_rule) != set(RECOVERY_LOSSES):
+        raise ValueError(f"Expected direct losses {RECOVERY_LOSSES}")
+    if set(data.candidate_model) != set(MODELS):
+        raise ValueError(f"Expected candidate models {MODELS}")
+    if data.duplicated(["scoring_rule", *KEYS]).any():
+        raise ValueError("Duplicate PMP recovery rows")
+    if data.summary_dim.nunique() != 1:
+        raise ValueError("PMP recovery plots require one indirect summary dimension")
+
+
+def _recovery_indirect_label(data):
+    dim = int(data.summary_dim.iloc[0])
+    label = {20: "D", 40: "2D", 80: "4D"}.get(dim, str(dim))
+    return f"Indirect PMP (S={label})"
+
+
+def plot_pmp_recovery(data, *, output_stem=None, dpi=200):
+    """Plot gold versus indirect/direct PMP, colored by method (reference figure 1)."""
+    _validate_recovery_data(data)
+    with plt.rc_context({"font.size": 17, "savefig.facecolor": "white"}):
+        figure_height = 17.5
+        fig, axes = plt.subplots(3, 4, figsize=(23.5, figure_height),
+                                 sharex=True, sharey=True)
+        fig.subplots_adjust(left=.105, right=.925, bottom=2.4 / figure_height,
+                            top=1. - 1.2 / figure_height, wspace=.12, hspace=.14)
+        for loss, row_axes in zip(RECOVERY_LOSSES, axes, strict=True):
+            run = data.loc[data.scoring_rule.eq(loss)]
+            for model, ax in zip(MODELS, row_axes, strict=True):
+                panel = run.loc[run.candidate_model.eq(model)]
+                gold = panel.gold_pmp.to_numpy(float)
+                indirect = panel.indirect_pmp.to_numpy(float)
+                direct = panel.direct_pmp.to_numpy(float)
+                ax.set_axisbelow(True)
+                ax.grid(alpha=.2)
+                ax.plot([0, 1], [0, 1], "--", color="0.25", linewidth=1.2, zorder=1)
+                for method, estimate in (("indirect", indirect), ("direct", direct)):
+                    ax.scatter(gold, estimate, s=45, marker="o",
+                               color=RECOVERY_METHOD_COLORS[method], alpha=.75,
+                               edgecolors="black", linewidths=.25,
+                               zorder=2 if method == "indirect" else 3,
+                               clip_on=False)
+                for y, method, estimate in ((.95, "indirect", indirect),
+                                            (.86, "direct", direct)):
+                    mae = np.mean(np.abs(estimate - gold))
+                    ax.text(.04, y, f"{method.capitalize()} MAE = {mae:.4g}",
+                            transform=ax.transAxes, ha="left", va="top",
+                            color=RECOVERY_METHOD_COLORS[method], fontsize=13,
+                            bbox={"facecolor": "white", "edgecolor": "none",
+                                  "alpha": .8, "pad": 1.4}, zorder=4)
+                ax.set_xlim(0, 1)
+                ax.set_ylim(0, 1)
+                ax.set_xticks(np.linspace(0, 1, 6))
+                ax.set_yticks(np.linspace(0, 1, 6))
+                ax.set_aspect("equal", adjustable="box")
+                ax.tick_params(labelbottom=loss == RECOVERY_LOSSES[-1],
+                               labelleft=model == MODELS[0], labelsize=17)
+        _recovery_facet_strips(fig, axes)
+        fig.supxlabel("Gold-standard PMP", y=.105, fontsize=19)
+        fig.supylabel("Estimated PMP", x=.025, fontsize=22)
+        handles = [
+            Line2D([], [], linestyle="none", marker="o", markersize=11,
+                   markerfacecolor=RECOVERY_METHOD_COLORS[method],
+                   markeredgecolor="black", markeredgewidth=.3, label=label)
+            for method, label in (("indirect", _recovery_indirect_label(data)),
+                                  ("direct", "Direct PMP"))
+        ]
+        handles.append(Line2D([], [], linestyle="--", color="0.25",
+                              linewidth=1.2, label="Ideal: y = x"))
+        fig.legend(handles=handles, loc="lower center",
+                   bbox_to_anchor=(.5, .3125 / figure_height), ncol=3,
+                   frameon=False, fontsize=18, columnspacing=2.)
+        _save_recovery_figure(fig, output_stem, dpi)
+    return fig, axes
+
+
+def plot_pmp_recovery_by_source(data, *, output_stem=None, dpi=200):
+    """Plot gold versus indirect/direct PMP, colored by source (reference figure 2)."""
+    _validate_recovery_data(data)
+    sources = sorted(data.source_model.unique(),
+                     key=lambda source: int(str(source).lower().removeprefix("m")))
+    if len(sources) > len(RECOVERY_SOURCE_COLORS):
+        raise ValueError("More source models than available reference colors")
+    source_colors = dict(zip(sources, RECOVERY_SOURCE_COLORS, strict=True))
+    with plt.rc_context({"font.size": 17, "savefig.facecolor": "white"}):
+        figure_height = 17.5
+        fig, axes = plt.subplots(3, 4, figsize=(23.5, figure_height),
+                                 sharex=True, sharey=True)
+        fig.subplots_adjust(left=.105, right=.925, bottom=3.1 / figure_height,
+                            top=1. - 1.2 / figure_height, wspace=.12, hspace=.14)
+        for loss, row_axes in zip(RECOVERY_LOSSES, axes, strict=True):
+            run = data.loc[data.scoring_rule.eq(loss)]
+            for model, ax in zip(MODELS, row_axes, strict=True):
+                panel = run.loc[run.candidate_model.eq(model)]
+                ax.set_axisbelow(True)
+                ax.grid(alpha=.2)
+                ax.plot([0, 1], [0, 1], "--", color="0.25", linewidth=1.2, zorder=1)
+                for source in sources:
+                    sub = panel.loc[panel.source_model.eq(source)]
+                    gold = sub.gold_pmp.to_numpy(float)
+                    for method, column in (("indirect", "indirect_pmp"),
+                                           ("direct", "direct_pmp")):
+                        ax.scatter(gold, sub[column].to_numpy(float),
+                                   s=48 if method == "indirect" else 55,
+                                   marker=RECOVERY_METHOD_MARKERS[method],
+                                   color=source_colors[source], alpha=.75,
+                                   edgecolors="black", linewidths=.2,
+                                   zorder=2 if method == "indirect" else 3,
+                                   clip_on=False)
+                ax.set_xlim(0, 1)
+                ax.set_ylim(0, 1)
+                ax.set_xticks(np.linspace(0, 1, 6))
+                ax.set_yticks(np.linspace(0, 1, 6))
+                ax.set_aspect("equal", adjustable="box")
+                ax.tick_params(labelbottom=loss == RECOVERY_LOSSES[-1],
+                               labelleft=model == MODELS[0], labelsize=17)
+        _recovery_facet_strips(fig, axes)
+        fig.supxlabel("Gold-standard PMP", y=.145, fontsize=19)
+        fig.supylabel("Estimated PMP", x=.025, fontsize=22)
+        method_handles = [
+            Line2D([], [], linestyle="none", marker=RECOVERY_METHOD_MARKERS[method],
+                   markersize=11, markerfacecolor="0.35", markeredgecolor="black",
+                   markeredgewidth=.3, label=label)
+            for method, label in (("indirect", _recovery_indirect_label(data)),
+                                  ("direct", "Direct PMP"))
+        ]
+        method_handles.append(Line2D([], [], linestyle="--", color="0.25",
+                                     linewidth=1.2, label="Ideal: y = x"))
+        source_handles = [
+            Line2D([], [], linestyle="none", marker="o", markersize=10,
+                   markerfacecolor=source_colors[source], markeredgecolor="black",
+                   markeredgewidth=.3, label=str(source).upper())
+            for source in sources
+        ]
+        fig.legend(handles=method_handles, loc="lower center",
+                   bbox_to_anchor=(.5, 1.5 / figure_height), ncol=3,
+                   frameon=False, fontsize=18, columnspacing=2.)
+        fig.legend(handles=source_handles, loc="lower center",
+                   bbox_to_anchor=(.5, .1 / figure_height),
+                   ncol=min(6, len(sources)), frameon=False, fontsize=16,
+                   columnspacing=1.8, handletextpad=.5, labelspacing=.8)
+        _save_recovery_figure(fig, output_stem, dpi)
+    return fig, axes
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n", type=int, default=10)

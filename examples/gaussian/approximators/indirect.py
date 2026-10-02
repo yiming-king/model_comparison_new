@@ -40,10 +40,15 @@ def build_workflow(model: str, config: TrainingConfig):
         summary_dim=config.summary_dim, base_distribution=config.summary_base_distribution
     )
     inference_network = bf.networks.CouplingFlow()
-    learning_rate = keras.optimizers.schedules.CosineDecay(
-        initial_learning_rate=config.learning_rate,
-        decay_steps=config.epochs * config.num_batches,
-    )
+
+    if config.learning_rate_schedule == 'cosine':
+        learning_rate = keras.optimizers.schedules.CosineDecay(
+            initial_learning_rate=config.learning_rate,
+            decay_steps=config.epochs * config.num_batches,
+        )
+    else:
+        learning_rate = config.learning_rate
+
     optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
 
     workflow = bf.BasicWorkflow(
@@ -51,14 +56,14 @@ def build_workflow(model: str, config: TrainingConfig):
         adapter=adapter,
         summary_network=summary_network,
         inference_network=inference_network,
-        standardize="all",
+        standardize=config.standardize,
         optimizer=optimizer,
     )
     return workflow
 
-def train_one(model: str, config: TrainingConfig, *, save=True, overwrite=False):
-    network_path = checkpoint_path(config, model=model, )
-    hist_path = history_path(config,model=model,)
+def train_one(model: str, config: TrainingConfig, *, variant = "baseline", save=True, overwrite=False):
+    network_path = checkpoint_path(config, model=model, variant=variant)
+    hist_path = history_path(config,model=model, variant=variant)
 
     # Skip training if the network already exists
     if network_path.exists() and not overwrite:
@@ -83,6 +88,7 @@ def train_one(model: str, config: TrainingConfig, *, save=True, overwrite=False)
         workflow.approximator.save(network_path)
         history_data = {
             "method": "indirect",
+            "variant": variant,
             "model": model,
             "config": asdict(config),
             "history": {

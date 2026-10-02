@@ -12,7 +12,7 @@ import numpy as np
 from sklearn.covariance import LedoitWolf
 
 from ..approximators.config import TrainingConfig, checkpoint_path
-from ..config import ASSUMED_MODELS, SOURCE_MODELS, DATASET_DIR, RESULT_DIR
+from ..config import ASSUMED_MODELS, SOURCE_MODELS, DATASET_DIR, RESULT_DIR, get_result_dir
 from ..datasets.datasets import load_datasets
 from .inference import load_approximator
 
@@ -20,24 +20,25 @@ DIAGNOSTIC_DIR = RESULT_DIR / "diagnostics"
 
 DIAGNOSTICS = ("l2", "linf", "density", "mmd")
 
-def diagnostic_root(*, method, num_obs, summary_dim, scoring_rule=None):
+def diagnostic_root(*, method, num_obs, summary_dim, scoring_rule=None, variant="baseline"):
     """Return the root directory for one diagnostic configuration."""
     if method == "indirect":
         name = f"indirect_s{summary_dim}"
+        root = get_result_dir(variant) / "diagnostics"
     elif method == "direct":
         if scoring_rule is None:
             raise ValueError("scoring_rule is required for direct diagnostics")
         name = f"direct_{scoring_rule}_s{summary_dim}"
     else:
         raise ValueError("method must be 'indirect' or 'direct'")
-    return DIAGNOSTIC_DIR / f"n{num_obs}" / name
+    return (root if method == "indirect" else DIAGNOSTIC_DIR) / f"n{num_obs}" / name
 
-def indirect_reference_path(*, num_obs, summary_dim, model):
-    return diagnostic_root(method="indirect", num_obs=num_obs, summary_dim=summary_dim) / "reference" / f"{model}.npz"
+def indirect_reference_path(*, num_obs, summary_dim, model, variant="baseline"):
+    return diagnostic_root(method="indirect", num_obs=num_obs, summary_dim=summary_dim, variant=variant) / "reference" / f"{model}.npz"
 
-def indirect_density_path(*, num_obs, summary_dim, model):
+def indirect_density_path(*, num_obs, summary_dim, model, variant="baseline"):
     return (
-        diagnostic_root(method="indirect", num_obs=num_obs, summary_dim=summary_dim)
+        diagnostic_root(method="indirect", num_obs=num_obs, summary_dim=summary_dim, variant=variant)
         / "reference"
         / f"{model}_density.keras"
     )
@@ -54,15 +55,15 @@ def direct_density_path(*, num_obs, summary_dim, scoring_rule):
         / "density.keras"
     )
 
-def diagnostic_threshold_path(*, method, num_obs, summary_dim, scoring_rule=None):
+def diagnostic_threshold_path(*, method, num_obs, summary_dim, scoring_rule=None, variant="baseline"):
     return (
-        diagnostic_root(method=method, num_obs=num_obs, summary_dim=summary_dim, scoring_rule=scoring_rule)
+        diagnostic_root(method=method, num_obs=num_obs, summary_dim=summary_dim, scoring_rule=scoring_rule, variant=variant)
         / "thresholds.npz"
     )
 
-def diagnostic_result_path(*, method, split, source_model, num_obs, summary_dim, scoring_rule=None):
+def diagnostic_result_path(*, method, split, source_model, num_obs, summary_dim, scoring_rule=None, variant="baseline"):
     return (
-        diagnostic_root(method=method, num_obs=num_obs, summary_dim=summary_dim, scoring_rule=scoring_rule)
+        diagnostic_root(method=method, num_obs=num_obs, summary_dim=summary_dim, scoring_rule=scoring_rule, variant=variant)
         / split
         / f"{source_model}.npz"
     )
@@ -84,12 +85,12 @@ def load_x(*, split, source_model, num_obs):
     datasets = load_datasets(path)
     return (np.asarray(datasets["x"], dtype=np.float32), datasets["id"], datasets["source_model"])
 
-def load_indirect_approximators(*, num_obs, summary_dim, num_dims=20):
+def load_indirect_approximators(*, num_obs, summary_dim, num_dims=20, variant="baseline"):
     """Load the four model-specific NPE approximators."""
     config = TrainingConfig(
         num_dims=num_dims, num_obs=num_obs, summary_dim=summary_dim, summary_base_distribution="normal"
     )
-    return {model: load_approximator(checkpoint_path(config, model=model)) for model in ASSUMED_MODELS}
+    return {model: load_approximator(checkpoint_path(config, model=model, variant=variant)) for model in ASSUMED_MODELS}
 
 def load_direct_approximator(*, num_obs, summary_dim, scoring_rule, num_dims=20):
     """Load one direct model-comparison approximator."""
@@ -295,13 +296,13 @@ def diagnostic_scores(summaries, reference, density_flow, density_center):
 # ---------------------------------------------------------------------
 
 def fit_indirect_references(
-    *, num_obs, summary_dim, density_epochs=250, density_batch_size=128, seed=2025, overwrite=False
+    *, num_obs, summary_dim, density_epochs=250, density_batch_size=128, seed=2025, overwrite=False, variant="baseline"
 ):
   
-    approximators = load_indirect_approximators(num_obs=num_obs, summary_dim=summary_dim)
+    approximators = load_indirect_approximators(num_obs=num_obs, summary_dim=summary_dim, variant=variant)
     for model_index, model in enumerate(ASSUMED_MODELS):
-        ref_path = indirect_reference_path(num_obs=num_obs, summary_dim=summary_dim, model=model)
-        density_path = indirect_density_path(num_obs=num_obs, summary_dim=summary_dim, model=model)
+        ref_path = indirect_reference_path(num_obs=num_obs, summary_dim=summary_dim, model=model, variant=variant)
+        density_path = indirect_density_path(num_obs=num_obs, summary_dim=summary_dim, model=model, variant=variant)
         if (ref_path.exists() or density_path.exists()) and not overwrite:
             raise FileExistsError(f"Indirect reference exists: {model}")
         x, _, _ = load_x(split="reference", source_model=model, num_obs=num_obs)
@@ -319,21 +320,21 @@ def fit_indirect_references(
 # INDIRECT: calibration
 # ---------------------------------------------------------------------
 
-def calibrate_indirect_diagnostics(*, num_obs, summary_dim, coverage=0.90, overwrite=False):
+def calibrate_indirect_diagnostics(*, num_obs, summary_dim, coverage=0.90, overwrite=False, variant="baseline"):
     """
     Calibrate model-specific diagnostic intervals.
 
     Each model uses matching well-specified calibration datasets.
     """
-    approximators = load_indirect_approximators(num_obs=num_obs, summary_dim=summary_dim)
+    approximators = load_indirect_approximators(num_obs=num_obs, summary_dim=summary_dim, variant=variant)
     num_models = len(ASSUMED_MODELS)
     lower = {metric: np.empty(num_models, dtype=np.float64) for metric in DIAGNOSTICS}
     upper = {metric: np.empty(num_models, dtype=np.float64) for metric in DIAGNOSTICS}
     density_center = np.empty(num_models, dtype=np.float64)
     for model_index, model in enumerate(ASSUMED_MODELS):
-        reference = load_npz(indirect_reference_path(num_obs=num_obs, summary_dim=summary_dim, model=model))
+        reference = load_npz(indirect_reference_path(num_obs=num_obs, summary_dim=summary_dim, model=model, variant=variant))
         density_flow = keras.saving.load_model(
-            indirect_density_path(num_obs=num_obs, summary_dim=summary_dim, model=model)
+            indirect_density_path(num_obs=num_obs, summary_dim=summary_dim, model=model, variant=variant)
         )
         x, _, _ = load_x(split="calibration", source_model=model, num_obs=num_obs)
         z = summarize(approximators[model], x)
@@ -349,7 +350,7 @@ def calibrate_indirect_diagnostics(*, num_obs, summary_dim, coverage=0.90, overw
     for metric in DIAGNOSTICS:
         results[f"d_{metric}_lower"] = lower[metric]
         results[f"d_{metric}_upper"] = upper[metric]
-    output_path = diagnostic_threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim)
+    output_path = diagnostic_threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim, variant=variant)
     save_npz(results, output_path, overwrite=overwrite)
     print(f"Saved indirect diagnostic thresholds: {output_path}")
     return results
@@ -388,20 +389,20 @@ def compute_indirect_diagnostics(*, x, ids, source_model, approximators, referen
         result[f"typical_{metric}"] = (score >= low) & (score <= high)
     return result
 
-def run_indirect_diagnostics(*, split, num_obs, summary_dim, sources=None, overwrite=False):
+def run_indirect_diagnostics(*, split, num_obs, summary_dim, sources=None, overwrite=False, variant="baseline"):
     """Compute indirect diagnostics for a complete dataset split."""
     if sources is None:
         sources = SOURCE_MODELS if split == "simulated" else ASSUMED_MODELS
-    approximators = load_indirect_approximators(num_obs=num_obs, summary_dim=summary_dim)
+    approximators = load_indirect_approximators(num_obs=num_obs, summary_dim=summary_dim, variant=variant)
     references = {
-        model: load_npz(indirect_reference_path(num_obs=num_obs, summary_dim=summary_dim, model=model))
+        model: load_npz(indirect_reference_path(num_obs=num_obs, summary_dim=summary_dim, model=model, variant=variant))
         for model in ASSUMED_MODELS
     }
     density_flows = {
-        model: keras.saving.load_model(indirect_density_path(num_obs=num_obs, summary_dim=summary_dim, model=model))
+        model: keras.saving.load_model(indirect_density_path(num_obs=num_obs, summary_dim=summary_dim, model=model, variant=variant))
         for model in ASSUMED_MODELS
     }
-    thresholds = load_npz(diagnostic_threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim))
+    thresholds = load_npz(diagnostic_threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim, variant=variant))
     for source in sources:
         x, ids, source_model = load_x(split=split, source_model=source, num_obs=num_obs)
         results = compute_indirect_diagnostics(
@@ -414,7 +415,8 @@ def run_indirect_diagnostics(*, split, num_obs, summary_dim, sources=None, overw
             thresholds=thresholds,
         )
         output_path = diagnostic_result_path(
-            method="indirect", split=split, source_model=source, num_obs=num_obs, summary_dim=summary_dim
+            method="indirect", split=split, source_model=source, num_obs=num_obs, summary_dim=summary_dim,
+            variant=variant
         )
         save_npz(results, output_path, overwrite=overwrite)
         print(f"Saved indirect diagnostics: {source}")

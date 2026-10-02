@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
-from ..config import ASSUMED_MODELS, SOURCE_MODELS, RESULT_DIR
+from ..config import ASSUMED_MODELS, SOURCE_MODELS, RESULT_DIR, get_result_dir
 from .diagnostic import DIAGNOSTICS, diagnostic_result_path, diagnostic_threshold_path
 from .inference import inference_path
 from .metric import gold_path, load_npz, metrics_path
@@ -19,19 +19,20 @@ COMPARISON_DIR = RESULT_DIR / "comparison"
 # Paths
 # ---------------------------------------------------------------------
 
-def comparison_root(*, method, num_obs, summary_dim, scoring_rule=None):
+def comparison_root(*, method, num_obs, summary_dim, scoring_rule=None, variant="baseline"):
     if method == "indirect":
         name = f"indirect_s{summary_dim}"
+        root = get_result_dir(variant) / "comparison"
     elif method == "direct":
         if scoring_rule is None:
             raise ValueError("scoring_rule is required for direct comparison")
         name = f"direct_{scoring_rule}_s{summary_dim}"
     else:
         raise ValueError("method must be 'indirect' or 'direct'")
-    return COMPARISON_DIR / f"n{num_obs}" / name
+    return (root if method == "indirect" else COMPARISON_DIR) / f"n{num_obs}" / name
 
-def comparison_paths(*, method, num_obs, summary_dim, scoring_rule=None):
-    root = comparison_root(method=method, num_obs=num_obs, summary_dim=summary_dim, scoring_rule=scoring_rule)
+def comparison_paths(*, method, num_obs, summary_dim, scoring_rule=None, variant="baseline"):
+    root = comparison_root(method=method, num_obs=num_obs, summary_dim=summary_dim, scoring_rule=scoring_rule, variant=variant)
     return {
         "data": root / "data.csv",
         "detection": root / "detection.csv",
@@ -189,25 +190,28 @@ def global_pmp_detection(data, *, method):
 # Indirect
 # ---------------------------------------------------------------------
 
-def build_indirect_comparison(*, num_obs, summary_dim, split="simulated", sources=SOURCE_MODELS):
+def build_indirect_comparison(*, num_obs, summary_dim, split="simulated", sources=SOURCE_MODELS, variant="baseline"):
     """Build long-form indirect comparison data."""
-    error_thresholds = load_npz(threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim))
+    error_thresholds = load_npz(threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim, variant=variant))
     diagnostic_thresholds = load_npz(
-        diagnostic_threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim)
+        diagnostic_threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim, variant=variant)
     )
     frames = []
     for source in sources:
         metrics = load_npz(
-            metrics_path(method="indirect", split=split, source_model=source, num_obs=num_obs, summary_dim=summary_dim)
+            metrics_path(method="indirect", split=split, source_model=source, num_obs=num_obs, summary_dim=summary_dim,
+                variant=variant)
         )
         diagnostics = load_npz(
             diagnostic_result_path(
-                method="indirect", split=split, source_model=source, num_obs=num_obs, summary_dim=summary_dim
+                method="indirect", split=split, source_model=source, num_obs=num_obs, summary_dim=summary_dim,
+                variant=variant
             )
         )
         inference = load_npz(
             inference_path(
-                method="indirect", split=split, source_model=source, num_obs=num_obs, summary_dim=summary_dim
+                method="indirect", split=split, source_model=source, num_obs=num_obs, summary_dim=summary_dim,
+                variant=variant
             )
         )
         gold = load_npz(gold_path(split=split, source_model=source, num_obs=num_obs))
@@ -280,11 +284,11 @@ def build_indirect_comparison(*, num_obs, summary_dim, split="simulated", source
             frames.append(frame)
     return pd.concat(frames, ignore_index=True)
 
-def run_indirect_comparison(*, num_obs, summary_dim, split="simulated", sources=SOURCE_MODELS, overwrite=False):
-    data = build_indirect_comparison(num_obs=num_obs, summary_dim=summary_dim, split=split, sources=sources)
+def run_indirect_comparison(*, num_obs, summary_dim, split="simulated", sources=SOURCE_MODELS, overwrite=False, variant="baseline"):
+    data = build_indirect_comparison(num_obs=num_obs, summary_dim=summary_dim, split=split, sources=sources, variant=variant)
     detection = component_detection(data, method="indirect", error_metrics=("posterior_mmd", "logml", "pmp"))
     global_detection = global_pmp_detection(data, method="indirect")
-    paths = comparison_paths(method="indirect", num_obs=num_obs, summary_dim=summary_dim)
+    paths = comparison_paths(method="indirect", num_obs=num_obs, summary_dim=summary_dim, variant=variant)
     save_csv(data, paths["data"], overwrite=overwrite)
     save_csv(detection, paths["detection"], overwrite=overwrite)
     save_csv(global_detection, paths["global_pmp_detection"], overwrite=overwrite)
@@ -403,6 +407,6 @@ def run_direct_comparison(
 # Load saved results
 # ---------------------------------------------------------------------
 
-def load_comparison(*, method, num_obs, summary_dim, scoring_rule=None):
-    paths = comparison_paths(method=method, num_obs=num_obs, summary_dim=summary_dim, scoring_rule=scoring_rule)
+def load_comparison(*, method, num_obs, summary_dim, scoring_rule=None, variant="baseline"):
+    paths = comparison_paths(method=method, num_obs=num_obs, summary_dim=summary_dim, scoring_rule=scoring_rule, variant=variant)
     return {name: pd.read_csv(path) for name, path in paths.items()}

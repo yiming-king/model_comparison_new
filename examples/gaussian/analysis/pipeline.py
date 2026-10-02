@@ -83,10 +83,11 @@ def run_gold(*, num_obs, overwrite=False):
 # Indirect
 # ---------------------------------------------------------------------
 
-def run_indirect_inference_and_metrics(*, split, sources, num_obs, summary_dim, overwrite=False):
+def run_indirect_inference_and_metrics(*, split, sources, num_obs, summary_dim, overwrite=False, variant="baseline"):
     for source_model in sources:
         inf_path = inference_path(
-            method="indirect", split=split, source_model=source_model, num_obs=num_obs, summary_dim=summary_dim
+            method="indirect", split=split, source_model=source_model, num_obs=num_obs, summary_dim=summary_dim,
+            variant=variant
         )
         if needs_run(inf_path, overwrite=overwrite):
             run_indirect_file(
@@ -97,11 +98,13 @@ def run_indirect_inference_and_metrics(*, split, sources, num_obs, summary_dim, 
                 num_samples=NUM_POSTERIOR_SAMPLES,
                 seed=SEED,
                 overwrite=overwrite,
+                variant=variant,
             )
         else:
             print(f"Skip existing: {inf_path}")
         metric_path = metrics_path(
-            method="indirect", split=split, source_model=source_model, num_obs=num_obs, summary_dim=summary_dim
+            method="indirect", split=split, source_model=source_model, num_obs=num_obs, summary_dim=summary_dim,
+            variant=variant
         )
         if needs_run(metric_path, overwrite=overwrite):
             run_indirect_metrics_file(
@@ -111,17 +114,18 @@ def run_indirect_inference_and_metrics(*, split, sources, num_obs, summary_dim, 
                 summary_dim=summary_dim,
                 num_mmd_samples=NUM_MMD_SAMPLES,
                 overwrite=overwrite,
+                variant=variant,
             )
         else:
             print(f"Skip existing: {metric_path}")
 
-def run_indirect_reference(*, num_obs, summary_dim, overwrite=False):
+def run_indirect_reference(*, num_obs, summary_dim, overwrite=False, variant="baseline"):
     reference_files = []
     for model in ASSUMED_MODELS:
         reference_files.extend(
             [
-                indirect_reference_path(num_obs=num_obs, summary_dim=summary_dim, model=model),
-                indirect_density_path(num_obs=num_obs, summary_dim=summary_dim, model=model),
+                indirect_reference_path(num_obs=num_obs, summary_dim=summary_dim, model=model, variant=variant),
+                indirect_density_path(num_obs=num_obs, summary_dim=summary_dim, model=model, variant=variant),
             ]
         )
     all_exist = all(path.exists() for path in reference_files)
@@ -131,35 +135,37 @@ def run_indirect_reference(*, num_obs, summary_dim, overwrite=False):
         return
     if not none_exist and not all_exist and not overwrite:
         raise RuntimeError("Indirect diagnostic reference files are only partially present. Rerun with overwrite=True.")
-    fit_indirect_references(num_obs=num_obs, summary_dim=summary_dim, seed=SEED, overwrite=overwrite)
+    fit_indirect_references(num_obs=num_obs, summary_dim=summary_dim, seed=SEED, overwrite=overwrite, variant=variant)
 
-def run_indirect_analysis(*, num_obs, summary_dim, overwrite=False):
+def run_indirect_analysis(*, num_obs, summary_dim, overwrite=False, variant="baseline"):
     print(f"\nINDIRECT: N={num_obs}, S={summary_dim}\n")
     # --------------------------------------------------
     # Benchmark → inference error thresholds
     # --------------------------------------------------
     run_indirect_inference_and_metrics(
-        split="benchmark", sources=ASSUMED_MODELS, num_obs=num_obs, summary_dim=summary_dim, overwrite=overwrite
+        split="benchmark", sources=ASSUMED_MODELS, num_obs=num_obs, summary_dim=summary_dim, overwrite=overwrite,
+        variant=variant
     )
-    error_threshold_path = threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim)
+    error_threshold_path = threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim, variant=variant)
     if needs_run(error_threshold_path, overwrite=overwrite):
-        run_indirect_thresholds(num_obs=num_obs, summary_dim=summary_dim, overwrite=overwrite)
+        run_indirect_thresholds(num_obs=num_obs, summary_dim=summary_dim, overwrite=overwrite, variant=variant)
     else:
         print(f"Skip existing: {error_threshold_path}")
     # --------------------------------------------------
     # Reference + calibration → diagnostic thresholds
     # --------------------------------------------------
-    run_indirect_reference(num_obs=num_obs, summary_dim=summary_dim, overwrite=overwrite)
-    diag_threshold_path = diagnostic_threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim)
+    run_indirect_reference(num_obs=num_obs, summary_dim=summary_dim, overwrite=overwrite, variant=variant)
+    diag_threshold_path = diagnostic_threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim, variant=variant)
     if needs_run(diag_threshold_path, overwrite=overwrite):
-        calibrate_indirect_diagnostics(num_obs=num_obs, summary_dim=summary_dim, overwrite=overwrite)
+        calibrate_indirect_diagnostics(num_obs=num_obs, summary_dim=summary_dim, overwrite=overwrite, variant=variant)
     else:
         print(f"Skip existing: {diag_threshold_path}")
     # --------------------------------------------------
     # Simulated M1-M12 → actual inference errors
     # --------------------------------------------------
     run_indirect_inference_and_metrics(
-        split="simulated", sources=SOURCE_MODELS, num_obs=num_obs, summary_dim=summary_dim, overwrite=overwrite
+        split="simulated", sources=SOURCE_MODELS, num_obs=num_obs, summary_dim=summary_dim, overwrite=overwrite,
+        variant=variant
     )
     # --------------------------------------------------
     # Simulated M1-M12 → diagnostics
@@ -167,21 +173,23 @@ def run_indirect_analysis(*, num_obs, summary_dim, overwrite=False):
     missing_sources = []
     for source in SOURCE_MODELS:
         path = diagnostic_result_path(
-            method="indirect", split="simulated", source_model=source, num_obs=num_obs, summary_dim=summary_dim
+            method="indirect", split="simulated", source_model=source, num_obs=num_obs, summary_dim=summary_dim,
+            variant=variant
         )
         if needs_run(path, overwrite=overwrite):
             missing_sources.append(source)
     if missing_sources:
         run_indirect_diagnostics(
-            split="simulated", num_obs=num_obs, summary_dim=summary_dim, sources=missing_sources, overwrite=overwrite
+            split="simulated", num_obs=num_obs, summary_dim=summary_dim, sources=missing_sources, overwrite=overwrite,
+            variant=variant
         )
     # --------------------------------------------------
     # Final comparison
     # --------------------------------------------------
-    paths = comparison_paths(method="indirect", num_obs=num_obs, summary_dim=summary_dim)
+    paths = comparison_paths(method="indirect", num_obs=num_obs, summary_dim=summary_dim, variant=variant)
     comparison_complete = all(path.exists() for path in paths.values())
     if overwrite or not comparison_complete:
-        run_indirect_comparison(num_obs=num_obs, summary_dim=summary_dim, overwrite=True)
+        run_indirect_comparison(num_obs=num_obs, summary_dim=summary_dim, overwrite=True, variant=variant)
     else:
         print(f"Skip existing comparison: {paths['data'].parent}")
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..config import ASSUMED_MODELS, RESULT_DIR
+from ..config import ASSUMED_MODELS, RESULT_DIR, get_result_dir
 from .metric import load_npz, metrics_path
 
 THRESHOLD_DIR = RESULT_DIR / "thresholds"
@@ -23,17 +23,18 @@ def upper_quantile(values, *, quantile=0.95, axis=0):
     values = np.asarray(values, dtype=np.float64)
     return np.quantile(values, quantile, axis=axis)
 
-def threshold_path(*, method, num_obs, summary_dim, scoring_rule=None):
+def threshold_path(*, method, num_obs, summary_dim, scoring_rule=None, variant="baseline"):
     """Return path for one calibrated threshold file."""
     if method == "indirect":
         name = f"indirect_s{summary_dim}.npz"
+        root = get_result_dir(variant) / "thresholds"
     elif method == "direct":
         if scoring_rule is None:
             raise ValueError("scoring_rule is required for direct thresholds")
         name = f"direct_{scoring_rule}_s{summary_dim}.npz"
     else:
         raise ValueError("method must be 'indirect' or 'direct'")
-    return THRESHOLD_DIR / f"n{num_obs}" / name
+    return (root if method == "indirect" else THRESHOLD_DIR) / f"n{num_obs}" / name
 
 def save_thresholds(thresholds, path, *, overwrite=False):
     """Save calibrated thresholds."""
@@ -47,7 +48,7 @@ def load_thresholds(path):
     """Load calibrated thresholds."""
     return load_npz(path)
 
-def load_all_metrics(*, method, split, num_obs, summary_dim, scoring_rule=None):
+def load_all_metrics(*, method, split, num_obs, summary_dim, scoring_rule=None, variant="baseline"):
     """
     Load metric files for all four assumed generating models.
 
@@ -68,6 +69,7 @@ def load_all_metrics(*, method, split, num_obs, summary_dim, scoring_rule=None):
             num_obs=num_obs,
             summary_dim=summary_dim,
             scoring_rule=scoring_rule,
+            variant=variant,
         )
         results[source_model] = load_npz(path)
     return results
@@ -132,14 +134,14 @@ def calibrate_direct_thresholds(metrics_by_source, *, signed_error_coverage=0.90
     }
 
 def run_indirect_thresholds(
-    *, num_obs, summary_dim, split="benchmark", posterior_quantile=0.95, signed_error_coverage=0.90, overwrite=False
+    *, num_obs, summary_dim, split="benchmark", posterior_quantile=0.95, signed_error_coverage=0.90, overwrite=False, variant="baseline"
 ):
     """Calibrate and save indirect thresholds."""
-    metrics_by_source = load_all_metrics(method="indirect", split=split, num_obs=num_obs, summary_dim=summary_dim)
+    metrics_by_source = load_all_metrics(method="indirect", split=split, num_obs=num_obs, summary_dim=summary_dim, variant=variant)
     thresholds = calibrate_indirect_thresholds(
         metrics_by_source, posterior_quantile=posterior_quantile, signed_error_coverage=signed_error_coverage
     )
-    output_path = threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim)
+    output_path = threshold_path(method="indirect", num_obs=num_obs, summary_dim=summary_dim, variant=variant)
     save_thresholds(thresholds, output_path, overwrite=overwrite)
     print(f"Saved: {output_path}")
     return thresholds

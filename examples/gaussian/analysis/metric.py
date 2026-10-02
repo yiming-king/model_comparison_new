@@ -11,7 +11,7 @@ import tensorflow as tf
 from bayesflow.metrics import MaximumMeanDiscrepancy
 
 from ..analytic.gold import GOLD_DIR
-from ..config import RESULT_DIR
+from ..config import RESULT_DIR, get_result_dir
 from .inference import INFERENCE_DIR, inference_path
 
 METRICS_DIR = RESULT_DIR / "metrics"
@@ -29,7 +29,7 @@ def save_metrics(results, path, *, overwrite=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(path, **results)
 
-def metrics_path(*, method, split, source_model, num_obs, summary_dim, scoring_rule=None):
+def metrics_path(*, method, split, source_model, num_obs, summary_dim, scoring_rule=None, variant="baseline"):
     """Return metric path matching the corresponding inference path."""
     inf_path = inference_path(
         method=method,
@@ -38,9 +38,11 @@ def metrics_path(*, method, split, source_model, num_obs, summary_dim, scoring_r
         num_obs=num_obs,
         summary_dim=summary_dim,
         scoring_rule=scoring_rule,
+        variant=variant,
     )
-    relative_path = inf_path.relative_to(INFERENCE_DIR)
-    return METRICS_DIR / relative_path
+    root = get_result_dir(variant) if method == "indirect" else RESULT_DIR
+    relative_path = inf_path.relative_to(root / "inference")
+    return root / "metrics" / relative_path
 
 def gold_path(*, split, source_model, num_obs):
     """Return the analytical gold-standard path."""
@@ -123,14 +125,16 @@ def compute_direct_metrics(inference, gold):
         "pmp_l1_error": pmp_l1_error,
     }
 
-def run_indirect_metrics_file(*, split, source_model, num_obs, summary_dim, num_mmd_samples=1024, overwrite=False):
+def run_indirect_metrics_file(*, split, source_model, num_obs, summary_dim, num_mmd_samples=1024, overwrite=False, variant="baseline"):
     """Compute and save indirect metrics for one inference file."""
     inf_path = inference_path(
-        method="indirect", split=split, source_model=source_model, num_obs=num_obs, summary_dim=summary_dim
+        method="indirect", split=split, source_model=source_model, num_obs=num_obs, summary_dim=summary_dim,
+        variant=variant
     )
     reference_path = gold_path(split=split, source_model=source_model, num_obs=num_obs)
     output_path = metrics_path(
-        method="indirect", split=split, source_model=source_model, num_obs=num_obs, summary_dim=summary_dim
+        method="indirect", split=split, source_model=source_model, num_obs=num_obs, summary_dim=summary_dim,
+        variant=variant
     )
     inference = load_npz(inf_path)
     gold = load_npz(reference_path)
