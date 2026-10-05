@@ -101,10 +101,11 @@ class TrainingConfig:
 
         if self.standardize not in (
             "all",
+            "summary_variables",
             None,
         ):
             raise ValueError(
-                "standardize must be 'all' or None"
+                "standardize must be 'all', 'summary_variables', or None"
             )
 
     @property

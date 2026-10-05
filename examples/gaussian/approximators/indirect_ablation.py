@@ -26,6 +26,11 @@ VARIANTS = {
         "learning_rate_schedule": "cosine",
         "standardize": None,
     },
+    "summary_only": {
+        "seed": 2025,
+        "learning_rate_schedule": "cosine",
+        "standardize": "summary_variables",
+    },
 }
 
 
