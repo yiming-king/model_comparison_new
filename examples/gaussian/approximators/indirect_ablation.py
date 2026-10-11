@@ -7,7 +7,6 @@ from .config import TrainingConfig
 from .indirect import train_one
 
 
-NUM_OBS = 10
 SUMMARY_DIMS = (40, 80)
 
 VARIANTS = {
@@ -42,6 +41,7 @@ VARIANTS = {
 def train_variant(
     variant: str,
     *,
+    num_obs =10,
     overwrite=False,
 ):
     settings = VARIANTS[variant]
@@ -52,7 +52,7 @@ def train_variant(
     ):
         config = TrainingConfig(
             num_dims=20,
-            num_obs=NUM_OBS,
+            num_obs=num_obs,
             summary_dim=summary_dim,
             epochs=256,
             batch_size=64,
@@ -70,10 +70,12 @@ def train_variant(
         )
 
 
-def train_all_ablation(*, overwrite=False):
+
+def train_all_ablation(*,num_obs=10, overwrite=False):
     for variant in VARIANTS:
         train_variant(
             variant,
+            num_obs=num_obs,
             overwrite=overwrite,
         )
 
