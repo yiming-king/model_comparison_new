@@ -30,22 +30,13 @@ def build_workflow(model: str, config: TrainingConfig):
     keras.utils.set_random_seed(config.seed)
     summary_network = bf.networks.DeepSet(summary_dim=config.summary_dim, base_distribution=config.summary_base_distribution,)
     inference_network = bf.networks.CouplingFlow()
-
-    learning_rate = keras.optimizers.schedules.CosineDecay(
-        initial_learning_rate=config.learning_rate, decay_steps=config.epochs * config.num_batches
-    )
-
-    optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
-
     workflow = bf.BasicWorkflow(
         simulator=SIMULATORS[model],
         adapter=build_adapter(),
         summary_network=summary_network,
         inference_network=inference_network,
         standardize=config.standardize,
-        optimizer=optimizer,
     )
-
     return workflow
 
 def train_one(model: str, config: TrainingConfig, *, variant="baseline", save=True, overwrite=False):

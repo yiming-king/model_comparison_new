@@ -14,10 +14,19 @@ The adapter still combines `rt` and `conditions` into `summary_variables` and
 automatic standardization of the **summary network input**. It does not
 directly standardize or unstandardize the learned output `h(y)`.
 
-All other training settings stay the same: DeepSet, CouplingFlow, cosine decay,
-256 epochs, 128 batches per epoch, batch size 64, learning rate `1e-4`, seed
-2025, and `summary_base_distribution=None`. Use the same dependency environment
-as for the baseline; changing library versions would introduce another factor.
+Both variants follow the current main-branch workflow: DeepSet, CouplingFlow,
+256 epochs, 128 batches per epoch, batch size 64, seed 2025, and
+`summary_base_distribution=None`. They use the current `BasicWorkflow`
+optimizer defaults, preserving main's removal of the explicit optimizer.
+`TrainingConfig.learning_rate` remains in the configuration for compatibility,
+but this training function no longer passes it to the workflow. Use the same
+dependency environment for both variants.
+
+Existing baseline checkpoints may have been trained before this optimizer
+change. Their saved files are not changed by merging this code. A comparison
+that varies only standardization requires both sets of networks to use the
+same training workflow and dependency versions; file existence alone does not
+verify this condition.
 
 | Output | baseline / default | inference_only |
 | --- | --- | --- |
