@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from numbers import Integral
 
-from ..config import ASSUMED_MODELS, NETWORK_DIR, NUM_TRIALS
+from ..config import ASSUMED_MODELS, NETWORK_DIR, NUM_TRIALS, get_variant_dir, normalize_variant
 
 SUMMARY_MULTIPLIERS = (1, 2, 4)
 
@@ -32,6 +32,7 @@ class TrainingConfig:
     learning_rate: float = 1e-4
     seed: int = 2025
     summary_base_distribution: str | None = None
+    standardize: str = "all"
 
     def __post_init__(self) -> None:
         if self.summary_dim <= 0:
@@ -53,6 +54,9 @@ class TrainingConfig:
 
         if self.summary_base_distribution not in (None, "normal"):
             raise ValueError("summary_base_distribution must be None or 'normal'")
+
+        if self.standardize not in ("all", "inference_variables"):
+            raise ValueError("standardize must be 'all' or 'inference_variables'")
 
     @property
     def network_tag(self) -> str:
@@ -77,12 +81,24 @@ def run_name(config: TrainingConfig, *, model: str | None = None, scoring_rule: 
 
     return f"{prefix}_{config.network_tag}"
 
-def checkpoint_path(config: TrainingConfig, *, model: str | None = None, scoring_rule: str | None = None):
+def network_root(variant: str = "baseline"):
+    return get_variant_dir(NETWORK_DIR, variant)
+
+
+def checkpoint_path(
+    config: TrainingConfig, *, model: str | None = None, scoring_rule: str | None = None, variant: str = "baseline"
+):
     name = run_name(config, model=model, scoring_rule=scoring_rule)
+    if scoring_rule is not None and normalize_variant(variant) != "baseline":
+        raise ValueError("Standardization variants apply only to indirect networks")
 
-    return NETWORK_DIR / f"{name}.keras"
+    return network_root(variant) / f"{name}.keras"
 
-def history_path(config: TrainingConfig, *, model: str | None = None, scoring_rule: str | None = None):
+def history_path(
+    config: TrainingConfig, *, model: str | None = None, scoring_rule: str | None = None, variant: str = "baseline"
+):
     name = run_name(config, model=model, scoring_rule=scoring_rule)
+    if scoring_rule is not None and normalize_variant(variant) != "baseline":
+        raise ValueError("Standardization variants apply only to indirect networks")
 
-    return NETWORK_DIR / "history" / f"{name}.json"
+    return network_root(variant) / "history" / f"{name}.json"

@@ -4,9 +4,9 @@ from pathlib import Path
 
 import numpy as np
 
-from ..config import ASSUMED_MODELS, RESULT_DIR
+from ..config import ASSUMED_MODELS, RESULT_DIR, get_result_dir, normalize_variant
 from .gold import load_gold, load_posterior_draws
-from .inference import INFERENCE_DIR, inference_path
+from .inference import inference_path
 
 METRICS_DIR = RESULT_DIR / "metrics"
 
@@ -23,13 +23,15 @@ def save_metrics(results, path, *, overwrite=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(path, **results)
 
-def metrics_path(*, method, split, source, summary_multiplier=None, scoring_rule=None):
+def metrics_path(*, method, split, source, summary_multiplier=None, scoring_rule=None, variant="baseline"):
     """Return metric path matching one inference file."""
     inf_path = inference_path(
-        method=method, split=split, source=source, summary_multiplier=summary_multiplier, scoring_rule=scoring_rule
+        method=method, split=split, source=source, summary_multiplier=summary_multiplier, scoring_rule=scoring_rule,
+        variant=variant,
     )
-    relative = inf_path.relative_to(INFERENCE_DIR)
-    return METRICS_DIR / relative
+    root = get_result_dir(variant)
+    relative = inf_path.relative_to(root / "inference")
+    return root / "metrics" / relative
 
 def check_alignment(inference, gold):
     """Check that inference and gold use the same datasets."""
@@ -193,10 +195,14 @@ def compute_direct_metrics(inference, gold):
 # ---------------------------------------------------------------------
 
 
-def run_indirect_metrics(*, split, source, summary_multiplier, num_mmd_samples=1024, seed=2025, overwrite=False):
+def run_indirect_metrics(
+    *, split, source, summary_multiplier, num_mmd_samples=1024, seed=2025, overwrite=False, variant="baseline"
+):
     """Compute and save indirect metrics."""
-    inf_path = inference_path(method="indirect", split=split, source=source, summary_multiplier=summary_multiplier)
-    output_path = metrics_path(method="indirect", split=split, source=source, summary_multiplier=summary_multiplier)
+    inf_path = inference_path(method="indirect", split=split, source=source, summary_multiplier=summary_multiplier,
+                              variant=variant)
+    output_path = metrics_path(method="indirect", split=split, source=source, summary_multiplier=summary_multiplier,
+                               variant=variant)
     inference = load_npz(inf_path)
     gold = load_gold(split, source)
     results = compute_indirect_metrics(
@@ -216,19 +222,27 @@ def run_direct_metrics(*, split, source, scoring_rule, overwrite=False):
     print(f"Saved: {output_path}")
 
 
-def run_empirical_metrics(*, num_mmd_samples=1024, seed=2025, overwrite=False):
-    """Compute empirical errors for every saved indirect and direct run."""
+def run_empirical_metrics(
+    *, num_mmd_samples=1024, seed=2025, overwrite=False, variant="baseline", summary_multipliers=None
+):
+    """Compute empirical errors; non-baseline variants include only indirect runs."""
     from ..approximators.config import DIRECT_SCORING_RULES, SUMMARY_MULTIPLIERS
 
-    for summary_multiplier in SUMMARY_MULTIPLIERS:
+    variant = normalize_variant(variant)
+    if summary_multipliers is None:
+        summary_multipliers = SUMMARY_MULTIPLIERS
+    for summary_multiplier in summary_multipliers:
         path = metrics_path(
-            method="indirect", split="empirical", source="empirical", summary_multiplier=summary_multiplier
+            method="indirect", split="empirical", source="empirical", summary_multiplier=summary_multiplier, variant=variant
         )
         if not path.exists() or overwrite:
             run_indirect_metrics(
                 split="empirical", source="empirical", summary_multiplier=summary_multiplier,
                 num_mmd_samples=num_mmd_samples, seed=seed, overwrite=overwrite,
+                variant=variant,
             )
+    if variant != "baseline":
+        return
     for scoring_rule in DIRECT_SCORING_RULES:
         path = metrics_path(method="direct", split="empirical", source="empirical", scoring_rule=scoring_rule)
         if not path.exists() or overwrite:

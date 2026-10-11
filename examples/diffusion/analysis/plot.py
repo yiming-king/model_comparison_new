@@ -16,7 +16,7 @@ from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator, NullLoca
 import numpy as np
 import pandas as pd
 
-from ..config import ASSUMED_MODELS, NUM_TRIALS, PARAM_DIMS, RESULT_DIR
+from ..config import ASSUMED_MODELS, INDIRECT_VARIANTS, NUM_TRIALS, PARAM_DIMS, RESULT_DIR, get_result_dir, normalize_variant
 from .comparison import (
     DATASET_KEYS,
     DIAGNOSTICS,
@@ -87,8 +87,12 @@ def load_runs(
     summary_multipliers=None,
     scoring_rules=None,
     result_dir=RESULT_DIR,
+    variant="baseline",
 ):
     """Read saved comparison tables and validate cross-run alignment."""
+    variant = normalize_variant(variant)
+    if method == "direct" and variant != "baseline":
+        raise ValueError("Direct plots only support the baseline variant")
     if method not in ("indirect", "direct"):
         raise ValueError("method must be 'indirect' or 'direct'")
     if method == "indirect" and scoring_rules is not None:
@@ -96,7 +100,7 @@ def load_runs(
     if method == "direct" and summary_multipliers is not None:
         raise ValueError("summary_multipliers selects indirect runs only")
 
-    root = Path(result_dir) / "comparison" / f"n{NUM_TRIALS}"
+    root = get_result_dir(variant, result_dir=result_dir) / "comparison" / f"n{NUM_TRIALS}"
     pattern = r"indirect_s([124])D" if method == "indirect" else r"direct_(.+)_s12"
 
     selected = []
@@ -133,7 +137,7 @@ def load_runs(
             if method == "indirect"
             else {"scoring_rule": value}
         )
-        frame = load_comparison(method=method, result_dir=result_dir, **option)["data"]
+        frame = load_comparison(method=method, result_dir=result_dir, variant=variant, **option)["data"]
 
         required = set(KEYS) | {
             "method",
@@ -1085,19 +1089,24 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--method", choices=("indirect", "direct", "both"), default="both")
     parser.add_argument("--result-dir", type=Path, default=RESULT_DIR)
+    parser.add_argument("--variant", choices=(*INDIRECT_VARIANTS, "default"), default="baseline")
     parser.add_argument("--dataset-type", choices=("both", "simulated", "empirical"), default="both")
     parser.add_argument("--summary-multipliers", nargs="+", type=int, default=[1, 2, 4])
     parser.add_argument("--scoring-rules", nargs="+", choices=SCORING_RULES, default=list(SCORING_RULES))
     args = parser.parse_args()
+    variant = normalize_variant(args.variant)
+    if args.method == "direct" and variant != "baseline":
+        parser.error("--method direct only supports --variant baseline")
 
     plt.switch_backend("Agg")
-    output_root = args.result_dir / "plots" / f"n{NUM_TRIALS}"
+    output_root = get_result_dir(variant, result_dir=args.result_dir) / "plots" / f"n{NUM_TRIALS}"
 
     if args.method in ("indirect", "both"):
         indirect = load_runs(
             "indirect",
             summary_multipliers=tuple(args.summary_multipliers),
             result_dir=args.result_dir,
+            variant=variant,
         )
         for metric in METRICS:
             fig, _ = plot_metric_grid(
@@ -1108,7 +1117,7 @@ def main():
             )
             plt.close(fig)
 
-    if args.method in ("direct", "both"):
+    if args.method in ("direct", "both") and variant == "baseline":
         direct = load_runs(
             "direct",
             scoring_rules=tuple(args.scoring_rules),

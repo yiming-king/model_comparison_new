@@ -11,7 +11,7 @@ from dataclasses import asdict
 import bayesflow as bf
 import keras
 
-from ..config import ASSUMED_MODELS, PARAM_DIMS
+from ..config import ASSUMED_MODELS, INDIRECT_VARIANTS, PARAM_DIMS, normalize_variant
 from ..simulators import SIMULATORS
 from .config import SUMMARY_MULTIPLIERS, TrainingConfig, checkpoint_path, history_path
 
@@ -35,20 +35,24 @@ def build_workflow(model: str, config: TrainingConfig):
         adapter=build_adapter(),
         summary_network=summary_network,
         inference_network=inference_network,
-        standardize="all",
+        standardize=config.standardize,
     )
     return workflow
 
-def train_one(model: str, config: TrainingConfig, *, save=True, overwrite=False):
-    network_path = checkpoint_path(config, model=model)
+def train_one(model: str, config: TrainingConfig, *, variant="baseline", save=True, overwrite=False):
+    variant = normalize_variant(variant)
+    expected = INDIRECT_VARIANTS[variant]["standardize"]
+    if config.standardize != expected:
+        raise ValueError(f"variant={variant!r} requires standardize={expected!r}, got {config.standardize!r}")
+    network_path = checkpoint_path(config, model=model, variant=variant)
 
-    hist_path = history_path(config, model=model)
+    hist_path = history_path(config, model=model, variant=variant)
 
     if network_path.exists() and not overwrite:
         print(f"Skip existing network: {network_path}")
         return None, None
 
-    print(f"\nTraining indirect model {model}: D={PARAM_DIMS[model]}, N=384, S={config.summary_dim}\n")
+    print(f"\nTraining indirect model {model}: variant={variant}, D={PARAM_DIMS[model]}, N=384, S={config.summary_dim}\n")
 
     workflow = build_workflow(model=model, config=config)
 
@@ -66,6 +70,7 @@ def train_one(model: str, config: TrainingConfig, *, save=True, overwrite=False)
 
         history_data = {
             "method": "indirect",
+            "variant": variant,
             "model": model,
             "config": asdict(config),
             "history": {key: [float(value) for value in values] for key, values in history.history.items()},
@@ -79,8 +84,12 @@ def train_one(model: str, config: TrainingConfig, *, save=True, overwrite=False)
 
     return workflow, history
 
-def train_all(*, overwrite=False):
-    for model, multiplier in itertools.product(MODELS, SUMMARY_MULTIPLIERS):
+def train_all(*, variant="baseline", summary_multipliers=SUMMARY_MULTIPLIERS, overwrite=False):
+    variant = normalize_variant(variant)
+    summary_multipliers = tuple(summary_multipliers)
+    if any(multiplier not in SUMMARY_MULTIPLIERS for multiplier in summary_multipliers):
+        raise ValueError(f"summary_multipliers must be chosen from {SUMMARY_MULTIPLIERS}")
+    for model, multiplier in itertools.product(MODELS, summary_multipliers):
         summary_dim = PARAM_DIMS[model] * multiplier
 
         config = TrainingConfig(
@@ -91,9 +100,18 @@ def train_all(*, overwrite=False):
             learning_rate=1e-4,
             seed=2025,
             summary_base_distribution=None,
+            **INDIRECT_VARIANTS[variant],
         )
 
-        train_one(model=model, config=config, overwrite=overwrite)
+        train_one(model=model, config=config, variant=variant, overwrite=overwrite)
 
 if __name__ == "__main__":
-    train_all(overwrite=False)
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--variant", choices=(*INDIRECT_VARIANTS, "default"), default="baseline")
+    parser.add_argument("--summary-multipliers", type=int, nargs="+", choices=SUMMARY_MULTIPLIERS,
+                        default=SUMMARY_MULTIPLIERS)
+    parser.add_argument("--overwrite", action="store_true")
+    args = parser.parse_args()
+    train_all(variant=args.variant, summary_multipliers=args.summary_multipliers, overwrite=args.overwrite)

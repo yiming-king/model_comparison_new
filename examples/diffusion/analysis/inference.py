@@ -12,7 +12,7 @@ from scipy.special import softmax
 
 from ..approximators.config import TrainingConfig, checkpoint_path
 from ..approximators.estimation import MarginalLikelihoodEstimator, parameter_array
-from ..config import ASSUMED_MODELS, NUM_TRIALS, PARAM_DIMS, RESULT_DIR
+from ..config import ASSUMED_MODELS, INDIRECT_VARIANTS, NUM_TRIALS, PARAM_DIMS, RESULT_DIR, get_result_dir, normalize_variant
 from ..datasets import load_benchmark_dataset, load_empirical_dataset, load_simulated_dataset
 
 INFERENCE_DIR = RESULT_DIR / "inference"
@@ -36,20 +36,24 @@ def save_inference(results, path, *, overwrite=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(path, **results)
 
-def inference_path(*, method, split, source, summary_multiplier=None, scoring_rule=None):
+def inference_path(*, method, split, source, summary_multiplier=None, scoring_rule=None, variant="baseline"):
+    variant = normalize_variant(variant)
     if method == "indirect":
         if summary_multiplier is None:
             raise ValueError("summary_multiplier is required for indirect inference")
         name = f"indirect_s{summary_multiplier}D"
     elif method == "direct":
+        if variant != "baseline":
+            raise ValueError("Standardization variants apply only to indirect inference")
         if scoring_rule is None:
             raise ValueError("scoring_rule is required for direct inference")
         name = f"direct_{scoring_rule}_s{DIRECT_SUMMARY_DIM}"
     else:
         raise ValueError("method must be 'indirect' or 'direct'")
-    return INFERENCE_DIR / f"n{NUM_TRIALS}" / split / name / f"{source}.npz"
+    return get_result_dir(variant) / "inference" / f"n{NUM_TRIALS}" / split / name / f"{source}.npz"
 
-def evaluate_indirect(datasets, *, summary_multiplier, num_samples=2048, seed=2025, batch_size=None):
+def evaluate_indirect(datasets, *, summary_multiplier, num_samples=2048, seed=2025, batch_size=None, variant="baseline"):
+    variant = normalize_variant(variant)
     data = np.asarray(datasets["data"], dtype=np.float32)
     ids = np.asarray(datasets["ids"])
     num_datasets = len(data)
@@ -67,8 +71,8 @@ def evaluate_indirect(datasets, *, summary_multiplier, num_samples=2048, seed=20
     for model_index, model in enumerate(ASSUMED_MODELS):
         summary_dim = PARAM_DIMS[model] * summary_multiplier
         print(f"Indirect inference: {model}, S={summary_dim}")
-        config = TrainingConfig(summary_dim=summary_dim)
-        approximator = load_approximator(checkpoint_path(config, model=model))
+        config = TrainingConfig(summary_dim=summary_dim, **INDIRECT_VARIANTS[variant])
+        approximator = load_approximator(checkpoint_path(config, model=model, variant=variant))
         samples = approximator.sample(
             conditions=conditions,
             num_samples=num_samples,
@@ -123,12 +127,16 @@ def load_dataset(split, source):
         return load_empirical_dataset(source)
     raise ValueError("split must be 'benchmark', 'simulated', or 'empirical'")
 
-def run_indirect(*, split, source, summary_multiplier, num_samples=2048, seed=2025, batch_size=None, overwrite=False):
+def run_indirect(
+    *, split, source, summary_multiplier, num_samples=2048, seed=2025, batch_size=None, overwrite=False, variant="baseline"
+):
     datasets = load_dataset(split, source)
     results = evaluate_indirect(
-        datasets, summary_multiplier=summary_multiplier, num_samples=num_samples, seed=seed, batch_size=batch_size
+        datasets, summary_multiplier=summary_multiplier, num_samples=num_samples, seed=seed, batch_size=batch_size,
+        variant=variant,
     )
-    path = inference_path(method="indirect", split=split, source=source, summary_multiplier=summary_multiplier)
+    path = inference_path(method="indirect", split=split, source=source, summary_multiplier=summary_multiplier,
+                          variant=variant)
     save_inference(results, path, overwrite=overwrite)
     print(f"Saved: {path}")
 

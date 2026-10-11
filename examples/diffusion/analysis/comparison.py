@@ -30,10 +30,13 @@ from scipy.stats import rankdata
 from ..config import (
     ASSUMED_MODELS,
     BASE_DIR,
+    INDIRECT_VARIANTS,
     NUM_TRIALS,
     PARAM_DIMS,
     RESULT_DIR,
     SIMULATED_DATASETS,
+    get_result_dir,
+    normalize_variant,
 )
 
 DIAGNOSTICS = ("l2", "linf", "density", "mmd")
@@ -65,14 +68,17 @@ ERROR_SPECS = {
 EMPIRICAL_GOLD_DIR = BASE_DIR / "stan" / "results_4_models" / "empirical"
 
 
-def run_name(*, method, summary_multiplier=None, scoring_rule=None):
+def run_name(*, method, summary_multiplier=None, scoring_rule=None, variant="baseline"):
     """Return the directory name for one saved RDM analysis run."""
+    variant = normalize_variant(variant)
     if method == "indirect":
         if summary_multiplier not in (1, 2, 4):
             raise ValueError("summary_multiplier must be 1, 2, or 4")
         return f"indirect_s{summary_multiplier}D"
 
     if method == "direct":
+        if variant != "baseline":
+            raise ValueError("Direct comparison only supports variant='baseline'")
         if scoring_rule not in SCORING_RULES:
             raise ValueError(f"scoring_rule must be one of {SCORING_RULES}")
         return f"direct_{scoring_rule}_s{DIRECT_SUMMARY_DIM}"
@@ -81,15 +87,24 @@ def run_name(*, method, summary_multiplier=None, scoring_rule=None):
 
 
 def comparison_paths(
-    *, method, summary_multiplier=None, scoring_rule=None, result_dir=RESULT_DIR
+    *,
+    method,
+    summary_multiplier=None,
+    scoring_rule=None,
+    result_dir=RESULT_DIR,
+    variant="baseline",
 ):
-    """Return the three comparison CSV paths for one run."""
+    """Return CSV paths; result_dir is the shared base results directory."""
     name = run_name(
         method=method,
         summary_multiplier=summary_multiplier,
         scoring_rule=scoring_rule,
+        variant=variant,
     )
-    root = Path(result_dir) / "comparison" / f"n{NUM_TRIALS}" / name
+    root = (
+        get_result_dir(variant, result_dir=result_dir)
+        / "comparison" / f"n{NUM_TRIALS}" / name
+    )
     return {
         "data": root / "data.csv",
         "detection": root / "detection.csv",
@@ -112,8 +127,9 @@ def input_paths(
     summary_multiplier=None,
     scoring_rule=None,
     result_dir=RESULT_DIR,
+    variant="baseline",
 ):
-    """Return all saved inputs needed to build one comparison block."""
+    """Select variant-derived results and gold from the shared result_dir."""
     if split not in ("simulated", "empirical", "benchmark"):
         raise ValueError("split must be simulated, empirical, or benchmark")
 
@@ -121,8 +137,9 @@ def input_paths(
         method=method,
         summary_multiplier=summary_multiplier,
         scoring_rule=scoring_rule,
+        variant=variant,
     )
-    root = Path(result_dir)
+    root = get_result_dir(variant, result_dir=result_dir)
     relative = Path(f"n{NUM_TRIALS}") / split / name / f"{source}.npz"
 
     return {
@@ -140,11 +157,11 @@ def input_paths(
         "diagnostic_thresholds": (
             root / "diagnostics" / f"n{NUM_TRIALS}" / name / "thresholds.npz"
         ),
-        "gold_archive": root / "gold" / split / f"{source}.npz",
+        "gold_archive": Path(result_dir) / "gold" / split / f"{source}.npz",
         "gold_directory": _gold_directory(
             split=split,
             source=source,
-            result_dir=root,
+            result_dir=result_dir,
         ),
     }
 
@@ -418,6 +435,7 @@ def build_comparison(
     splits=("simulated", "empirical"),
     sources=None,
     result_dir=RESULT_DIR,
+    variant="baseline",
     convergence_policy="available",
     allow_missing_empirical=False,
 ):
@@ -426,16 +444,19 @@ def build_comparison(
     No inference error or diagnostic is recalculated. The function validates
     saved results, attaches calibrated thresholds, and creates consistent flags.
     """
+    variant = normalize_variant(variant)
     options = {
         "method": method,
         "summary_multiplier": summary_multiplier,
         "scoring_rule": scoring_rule,
         "result_dir": result_dir,
+        "variant": variant,
     }
     run_name(
         method=method,
         summary_multiplier=summary_multiplier,
         scoring_rule=scoring_rule,
+        variant=variant,
     )
 
     if isinstance(splits, str):
@@ -735,6 +756,7 @@ def build_comparison(
                 frame = pd.DataFrame(
                     {
                         "method": method,
+                        "variant": variant,
                         "num_obs": NUM_TRIALS,
                         "summary_multiplier": (
                             summary_multiplier if method == "indirect" else 0
@@ -911,9 +933,17 @@ def binary_metrics(actual, predicted, score):
 
 
 def _data_groups(data):
-    yield "all", data
-    for name, group in data.groupby("dataset_type", sort=False, dropna=False):
-        yield str(name), group
+    variants = (
+        data["variant"].map(normalize_variant)
+        if "variant" in data
+        else pd.Series("baseline", index=data.index)
+    )
+    for variant, variant_data in data.groupby(variants, sort=False, dropna=False):
+        yield variant, "all", variant_data
+        for name, group in variant_data.groupby(
+            "dataset_type", sort=False, dropna=False
+        ):
+            yield variant, str(name), group
 
 
 def component_detection(data, *, method=None):
@@ -923,7 +953,7 @@ def component_detection(data, *, method=None):
 
     metrics = ("pmp",) if method == "direct" else tuple(ERROR_SPECS)
 
-    for dataset_type, group in _data_groups(data):
+    for variant, dataset_type, group in _data_groups(data):
         for model, panel in group.groupby("candidate_model", sort=False):
             for metric in metrics:
                 _, low_col, high_col = ERROR_SPECS[metric]
@@ -934,6 +964,7 @@ def component_detection(data, *, method=None):
                     rows.append(
                         {
                             "method": method,
+                            "variant": variant,
                             "dataset_type": dataset_type,
                             "scope": "component",
                             "candidate_model": model,
@@ -969,7 +1000,7 @@ def global_pmp_detection(data, *, method=None):
         else (("shared", "max"),)
     )
 
-    for dataset_type, group in _data_groups(data):
+    for variant, dataset_type, group in _data_groups(data):
         grouped = group.groupby(DATASET_KEYS, sort=False, dropna=False)
         if not grouped.size().eq(len(ASSUMED_MODELS)).all():
             raise ValueError(
@@ -984,6 +1015,7 @@ def global_pmp_detection(data, *, method=None):
                 rows.append(
                     {
                         "method": method,
+                        "variant": variant,
                         "dataset_type": dataset_type,
                         "scope": "dataset",
                         "error_metric": "pmp_any_component",
@@ -1007,6 +1039,7 @@ def run_comparison(
     summary_multiplier=None,
     scoring_rule=None,
     overwrite=False,
+    variant="baseline",
     **kwargs,
 ):
     paths = comparison_paths(
@@ -1014,6 +1047,7 @@ def run_comparison(
         summary_multiplier=summary_multiplier,
         scoring_rule=scoring_rule,
         result_dir=kwargs.get("result_dir", RESULT_DIR),
+        variant=variant,
     )
 
     existing = [path for path in paths.values() if path.exists()]
@@ -1026,6 +1060,7 @@ def run_comparison(
         method=method,
         summary_multiplier=summary_multiplier,
         scoring_rule=scoring_rule,
+        variant=variant,
         **kwargs,
     )
 
@@ -1063,19 +1098,29 @@ def run_all_comparisons(
     *,
     summary_multipliers=(1, 2, 4),
     scoring_rules=SCORING_RULES,
+    variant="baseline",
+    include_direct=None,
     **kwargs,
 ):
+    """Build all baseline runs, or only indirect runs for an ablation."""
+    variant = normalize_variant(variant)
+    if include_direct is None:
+        include_direct = variant == "baseline"
+    if include_direct and variant != "baseline":
+        raise ValueError("Direct comparison only supports variant='baseline'")
     outputs = {}
 
     for multiplier in summary_multipliers:
         outputs[f"indirect_s{multiplier}D"] = run_indirect_comparison(
             summary_multiplier=multiplier,
+            variant=variant,
             **kwargs,
         )
 
-    for rule in scoring_rules:
+    for rule in scoring_rules if include_direct else ():
         outputs[f"direct_{rule}_s{DIRECT_SUMMARY_DIM}"] = run_direct_comparison(
             scoring_rule=rule,
+            variant=variant,
             **kwargs,
         )
 
@@ -1110,13 +1155,16 @@ def load_comparison(
     summary_multiplier=None,
     scoring_rule=None,
     result_dir=RESULT_DIR,
+    variant="baseline",
 ):
     """Load one saved comparison run with stable dtypes."""
+    variant = normalize_variant(variant)
     paths = comparison_paths(
         method=method,
         summary_multiplier=summary_multiplier,
         scoring_rule=scoring_rule,
         result_dir=result_dir,
+        variant=variant,
     )
 
     missing = [path for path in paths.values() if not path.is_file()]
@@ -1131,6 +1179,16 @@ def load_comparison(
         )
         for name, path in paths.items()
     }
+
+    for name, table in tables.items():
+        if "variant" in table:
+            saved_variant = table["variant"].map(normalize_variant)
+            if not saved_variant.eq(variant).all():
+                raise ValueError(f"{name}: saved variant does not match {variant!r}")
+            table["variant"] = saved_variant
+        else:
+            # Existing baseline CSV files predate variant metadata.
+            table["variant"] = variant
 
     data = tables["data"]
     boolean_columns = []
@@ -1161,6 +1219,7 @@ def load_comparison(
 
     string_columns = {
         "method",
+        "variant",
         "scoring_rule",
         "split",
         *KEYS,
@@ -1174,6 +1233,7 @@ def load_comparison(
 
     categorical = {
         "method",
+        "variant",
         "dataset_type",
         "scope",
         "candidate_model",
@@ -1218,6 +1278,9 @@ def main():
     )
     parser.add_argument("--result-dir", type=Path, default=RESULT_DIR)
     parser.add_argument(
+        "--variant", choices=(*INDIRECT_VARIANTS, "default"), default="baseline"
+    )
+    parser.add_argument(
         "--convergence-policy",
         choices=("available", "strict", "all"),
         default="available",
@@ -1225,6 +1288,9 @@ def main():
     parser.add_argument("--allow-missing-empirical", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
+    variant = normalize_variant(args.variant)
+    if args.method == "direct" and variant != "baseline":
+        parser.error("--method direct only supports --variant baseline")
 
     run_all_comparisons(
         summary_multipliers=(
@@ -1233,6 +1299,8 @@ def main():
         scoring_rules=(args.scoring_rules if args.method != "indirect" else ()),
         splits=tuple(args.splits),
         result_dir=args.result_dir,
+        variant=variant,
+        include_direct=args.method != "indirect" and variant == "baseline",
         convergence_policy=args.convergence_policy,
         allow_missing_empirical=args.allow_missing_empirical,
         overwrite=args.overwrite,

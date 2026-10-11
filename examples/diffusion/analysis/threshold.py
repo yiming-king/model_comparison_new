@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..config import ASSUMED_MODELS, RESULT_DIR
+from ..config import ASSUMED_MODELS, RESULT_DIR, get_result_dir, normalize_variant
 from .inference import DIRECT_SUMMARY_DIM
 from .metric import load_npz, metrics_path
 
@@ -47,19 +47,22 @@ def load_thresholds(path):
 # ---------------------------------------------------------------------
 
 
-def threshold_path(*, method, summary_multiplier=None, scoring_rule=None):
+def threshold_path(*, method, summary_multiplier=None, scoring_rule=None, variant="baseline"):
     """Return the path for one threshold file."""
+    variant = normalize_variant(variant)
     if method == "indirect":
         if summary_multiplier is None:
             raise ValueError("summary_multiplier is required for indirect thresholds")
         name = f"indirect_s{summary_multiplier}D.npz"
     elif method == "direct":
+        if variant != "baseline":
+            raise ValueError("Standardization variants apply only to indirect thresholds")
         if scoring_rule is None:
             raise ValueError("scoring_rule is required for direct thresholds")
         name = f"direct_{scoring_rule}_s{DIRECT_SUMMARY_DIM}.npz"
     else:
         raise ValueError("method must be 'indirect' or 'direct'")
-    return THRESHOLD_DIR / "n384" / name
+    return get_result_dir(variant) / "thresholds" / "n384" / name
 
 
 # ---------------------------------------------------------------------
@@ -67,7 +70,7 @@ def threshold_path(*, method, summary_multiplier=None, scoring_rule=None):
 # ---------------------------------------------------------------------
 
 
-def load_all_metrics(*, method, summary_multiplier=None, scoring_rule=None):
+def load_all_metrics(*, method, summary_multiplier=None, scoring_rule=None, variant="baseline"):
     """
     Load benchmark metrics generated from M0-M3.
 
@@ -87,6 +90,7 @@ def load_all_metrics(*, method, summary_multiplier=None, scoring_rule=None):
             source=source,
             summary_multiplier=summary_multiplier,
             scoring_rule=scoring_rule,
+            variant=variant,
         )
         results[source] = load_npz(path)
     return results
@@ -217,14 +221,14 @@ def calibrate_direct_thresholds(metrics_by_source, *, signed_error_coverage=0.90
 
 
 def run_indirect_thresholds(
-    *, summary_multiplier, posterior_quantile=0.95, signed_error_coverage=0.90, overwrite=False
+    *, summary_multiplier, posterior_quantile=0.95, signed_error_coverage=0.90, overwrite=False, variant="baseline"
 ):
     """Calibrate and save indirect thresholds."""
-    metrics_by_source = load_all_metrics(method="indirect", summary_multiplier=summary_multiplier)
+    metrics_by_source = load_all_metrics(method="indirect", summary_multiplier=summary_multiplier, variant=variant)
     thresholds = calibrate_indirect_thresholds(
         metrics_by_source, posterior_quantile=posterior_quantile, signed_error_coverage=signed_error_coverage
     )
-    output_path = threshold_path(method="indirect", summary_multiplier=summary_multiplier)
+    output_path = threshold_path(method="indirect", summary_multiplier=summary_multiplier, variant=variant)
     save_thresholds(thresholds, output_path, overwrite=overwrite)
     print(f"Saved: {output_path}")
     return thresholds
