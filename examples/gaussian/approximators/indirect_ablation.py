@@ -31,6 +31,11 @@ VARIANTS = {
         "learning_rate_schedule": "cosine",
         "standardize": "summary_variables",
     },
+    "inference_only": {
+            "seed": 2025,
+            "learning_rate_schedule": "cosine",
+            "standardize": "inference_variables",
+        },
 }
 
 

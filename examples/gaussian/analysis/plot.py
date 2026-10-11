@@ -4,7 +4,7 @@ import re
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator, NullLocator
+from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator, NullLocator, SymmetricalLogLocator
 import numpy as np
 import pandas as pd
 
@@ -17,6 +17,13 @@ XLABELS = (r"Diagnostic: $L_2$-based", r"Diagnostic: $L_\infty$-based",
            "Diagnostic: density-based", "Diagnostic: Kernel-based")
 PALETTE = ("#0072B2", "#E69F00", "#CC79A7", "#009E73", "#56B4E9", "#D55E00")
 SUMMARY_COLORS = dict(zip((20, 40, 80), PALETTE))
+SUMMARY_MARKERS = {20: "s", 40: "^", 80: "o"}
+# Okabe-Ito-based colors with contrasting accents for M11 and M12.
+SOURCE_COLORS = (
+    "#56B4E9", "#CC79A7", "#0072B2", "#F0E442",
+    "#D55E00", "#882255", "#009E73", "#999933",
+    "#999999", "#E69F00", "#AA66EE", "#000000",
+)
 LOSS_NAMES = {"cross_entropy": "Cross-entropy", "logistic": "Logistic", "exponential": "Exponential"}
 KEYS = ["source_model", "id", "candidate_model"]
 # column, lower bound, upper bound, conversion from saved units, y-label
@@ -114,7 +121,11 @@ def _limits(axis, values, *, symmetric=False, nonnegative=False):
     return limits
 
 
-def _scatter(ax, frame, x, y, color, metric, method, flags):
+def _scatter(ax, frame, x, y, color, metric, method, flags, marker=None):
+    if marker is not None:
+        ax.scatter(x, y, c=color, marker=marker, s=44, alpha=.85,
+                   edgecolors="black", linewidths=.25, zorder=3, rasterized=True)
+        return
     if metric == "pmp":
         # The indirect classification uses ALL four candidates, not this row only.
         styles = ((False, "o", 40), (True, "D", 60)) if method == "indirect" else ((False, "o", 40),)
@@ -134,29 +145,23 @@ def _scatter(ax, frame, x, y, color, metric, method, flags):
                    s=132 if is_well else 96, edgecolors="black", linewidths=.65, zorder=6)
 
 
-def _error_ticks(ax, metric):
-    if ax.get_yscale() == "linear":
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=6))
-        return
-    lo, hi = ax.get_ylim()
-    if metric == "posterior_mmd":
-        ticks = [0.] + [10. ** e for e in range(-1, int(np.floor(np.log10(max(hi, .1)))) + 1)]
-        ticks = [v for v in ticks if lo <= v <= hi]
+def _error_ticks(ax, yticks=None):
+    if yticks is not None:
+        locator = FixedLocator(yticks)
+    elif (ax.get_yscale() == "linear"
+          or max(abs(v) for v in ax.get_ylim()) <= ax.yaxis.get_transform().linthresh):
+        locator = MaxNLocator(nbins=6, steps=[1, 2, 2.5, 5, 10])
     else:
-        transform = ax.yaxis.get_transform()
-        a, b = transform.transform([lo, hi])
-        step = (b - a) / 6
-        indices = np.arange(np.ceil(a / step), np.floor(b / step) + 1)
-        ticks = sorted({float(f"{v:.1g}") for v in transform.inverted().transform(indices * step)})
-        ticks = [v for v in ticks if lo <= v <= hi]
-    ax.yaxis.set_major_locator(FixedLocator(ticks))
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+        locator = SymmetricalLogLocator(transform=ax.yaxis.get_transform())
+    ax.yaxis.set_major_locator(locator)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}" if v else "0"))
     ax.yaxis.set_minor_locator(NullLocator())
 
 
-def _strips(fig, axes):
+def _strips(fig, axes, diagnostics=DIAGNOSTICS):
     positions = []
-    for ax, title in zip(axes[0], TITLES):
+    for ax, diagnostic in zip(axes[0], diagnostics):
+        title = TITLES[DIAGNOSTICS.index(diagnostic)]
         p = ax.get_position()
         positions.append(([p.x0, p.y1 + .004, p.width, .55 / fig.get_figheight()], title, 0))
     for ax, model in zip(axes[:, -1], MODELS):
@@ -171,10 +176,28 @@ def _strips(fig, axes):
 
 
 def plot_metric_grid(runs, metric="pmp", *, output=None, ylim=None,
-                     yscale=None, figsize=(21.5, 20), dpi=200):
-    """Return (figure, axes). Input must contain one method; CSVs are never modified."""
+                     yscale=None, linthresh=.1, linscale=.9, yticks=None,
+                     diagnostics=DIAGNOSTICS, color_by="run", source_marker=None,
+                     figsize=(21.5, 20), dpi=200):
+    """Return (figure, axes), sharing one y-axis range across all rows.
+
+    Set yscale to 'linear' or 'symlog'; linthresh sets the symlog linear region
+    [-linthresh, linthresh] in plotted units (log10 units for logml). For a
+    power-of-ten linthresh, linscale=.9 gives equal spacing through zero and
+    the base-10 decade ticks.
+    ylim=None covers all runs; yticks=None chooses clean ticks automatically.
+    diagnostics selects the columns. color_by='source' uses SOURCE_COLORS
+    for M1-M12 and summary dimension markers, without median overlays.
+    source_marker overrides the marker for all source-colored runs.
+    Input must contain one method; CSVs are never modified.
+    """
     if not runs or metric not in METRICS:
         raise ValueError("Provide nonempty runs and metric='posterior_mmd', 'logml', or 'pmp'")
+    diagnostics = tuple(diagnostics)
+    if not diagnostics or len(set(diagnostics)) != len(diagnostics) or set(diagnostics) - set(DIAGNOSTICS):
+        raise ValueError(f"diagnostics must be a nonempty selection from {DIAGNOSTICS}")
+    if color_by not in ("run", "source"):
+        raise ValueError("color_by must be 'run' or 'source'")
     methods = {str(frame.method.iloc[0]) for frame in runs.values()}
     if len(methods) != 1:
         raise ValueError("Plot direct and indirect separately; use the same PMP ylim to compare")
@@ -184,20 +207,35 @@ def plot_metric_grid(runs, metric="pmp", *, output=None, ylim=None,
     value, lower, upper, factor, ylabel = METRICS[metric]
     if ylim is not None and (len(ylim) != 2 or not np.isfinite(ylim).all() or ylim[0] >= ylim[1]):
         raise ValueError("ylim must contain two finite increasing values")
+    if not np.isfinite([linthresh, linscale]).all() or linthresh <= 0 or linscale <= 0:
+        raise ValueError("linthresh and linscale must be finite and positive")
+    if yticks is not None:
+        yticks = np.asarray(yticks, dtype=float)
+        if (yticks.ndim != 1 or not yticks.size or not np.isfinite(yticks).all()
+                or np.any(np.diff(yticks) <= 0)):
+            raise ValueError("yticks must contain finite, strictly increasing values")
     colors = {label: (SUMMARY_COLORS.get(int(f.summary_dim.iloc[0]), PALETTE[i % len(PALETTE)])
                       if method == "indirect" else PALETTE[i % len(PALETTE)])
               for i, (label, f) in enumerate(runs.items())}
     yscale = yscale or ("linear" if metric == "pmp" else "symlog")
     if yscale not in ("linear", "symlog"):
         raise ValueError("yscale must be 'linear' or 'symlog'")
-    fig, axes = plt.subplots(4, 4, figsize=figsize, sharex="col",
-                             sharey=True if metric == "pmp" else "row", squeeze=False)
-    fig.subplots_adjust(left=.095, right=.93, bottom=.105, top=.945, wspace=.10, hspace=.10)
+    fig, axes = plt.subplots(4, len(diagnostics), figsize=figsize, sharex="col", sharey=True, squeeze=False)
+    fig.subplots_adjust(left=.13 if color_by == "source" else .095, right=.93,
+                        bottom=.14 if color_by == "source" else .105,
+                        top=.945, wspace=.10, hspace=.10)
     all_data = pd.concat(runs.values(), ignore_index=True)
+    source_colors, markers = {}, {}
+    if color_by == "source":
+        source_colors = {f"m{i}": color for i, color in enumerate(SOURCE_COLORS, 1)}
+        if set(all_data.source_model) - set(source_colors):
+            raise ValueError("Source colors are defined for M1-M12")
+        markers = {label: (source_marker if source_marker is not None
+                           else SUMMARY_MARKERS[int(frame.summary_dim.iloc[0])])
+                   for label, frame in runs.items()}
+    yvalues = all_data[[value, lower, upper]].to_numpy(float).ravel() * factor
     for row, model in enumerate(MODELS):
-        ydata = all_data if metric == "pmp" else all_data.loc[all_data.candidate_model.eq(model)]
-        yvalues = ydata[[value, lower, upper]].to_numpy(float).ravel() * factor
-        for col, diagnostic in enumerate(DIAGNOSTICS):
+        for col, diagnostic in enumerate(diagnostics):
             ax = axes[row, col]
             xcol, lowcol = f"rho_{diagnostic}", f"rho_low_{diagnostic}"
             panels = {label: f.loc[f.candidate_model.eq(model)] for label, f in runs.items()}
@@ -215,16 +253,18 @@ def plot_metric_grid(runs, metric="pmp", *, output=None, ylim=None,
             for label, panel in panels.items():
                 lo, hi = bounds[label]
                 for bound in ((hi,) if metric == "posterior_mmd" else (lo, hi)):
-                    ax.axhline(bound, color=colors[label], ls=":", lw=1.2, alpha=.9, zorder=1)
+                    ax.axhline(bound, color="0.4" if source_colors else colors[label],
+                               ls=":", lw=1.2, alpha=.9, zorder=1)
                 flags = None
-                if metric == "pmp" and method == "indirect":
+                if not source_colors and metric == "pmp" and method == "indirect":
                     flags = runs[label].groupby(KEYS[:2])[xcol].transform("min").le(1.).loc[panel.index]
-                _scatter(ax, panel, panel[xcol], panel[value] * factor, colors[label], metric, method, flags)
+                color = panel.source_model.map(source_colors).to_numpy() if source_colors else colors[label]
+                _scatter(ax, panel, panel[xcol], panel[value] * factor, color, metric, method, flags,
+                         marker=markers.get(label))
             if metric != "posterior_mmd":
                 ax.axhline(0., color="0.35", lw=.8, zorder=1)
             ax.set_xscale("symlog", linthresh=1.)
-            linscale = {"posterior_mmd": .2, "logml": 3., "pmp": 1.}[metric]
-            ax.set_yscale(yscale, **({"linthresh": .1, "linscale": linscale}
+            ax.set_yscale(yscale, **({"linthresh": linthresh, "linscale": linscale}
                                     if yscale == "symlog" else {}))
             xvalues = np.r_[all_data[xcol], all_data[lowcol], 1.]
             xlimits = _limits(ax.xaxis, xvalues,
@@ -232,11 +272,10 @@ def plot_metric_grid(runs, metric="pmp", *, output=None, ylim=None,
             if diagnostic == "mmd" and xvalues.min() >= 0.:
                 xlimits[0] = max(0., xlimits[0])
             ax.set_xlim(xlimits)
-            limits = _limits(ax.yaxis, np.r_[yvalues, 0.], symmetric=(metric == "pmp" or (metric == "logml" and model == "m3")))
-            if metric == "posterior_mmd":
-                limits[0] = -.01
+            limits = _limits(ax.yaxis, np.r_[yvalues, 0.], symmetric=metric == "pmp",
+                             nonnegative=metric == "posterior_mmd")
             ax.set_ylim(limits if ylim is None else ylim)
-            _error_ticks(ax, metric)
+            _error_ticks(ax, yticks)
             if diagnostic == "mmd" and np.max(xvalues) <= 2.:
                 ax.xaxis.set_major_locator(FixedLocator([.5, 1., 1.5, 2.]))
                 ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
@@ -244,22 +283,33 @@ def plot_metric_grid(runs, metric="pmp", *, output=None, ylim=None,
             ax.grid(alpha=.2)
             ax.tick_params(labelsize=17, labelbottom=row == 3, labelleft=col == 0)
             if row == 3:
-                ax.set_xlabel(XLABELS[col], fontsize=19)
+                ax.set_xlabel(XLABELS[DIAGNOSTICS.index(diagnostic)], fontsize=19)
     fig.supylabel(ylabel, x=.022, fontsize=22)
-    _strips(fig, axes)
-    handles = [Line2D([], [], color=color, lw=3, label=label) for label, color in colors.items()]
-    shapes = [("o", "simulated datasets", False)]
-    if metric != "pmp":
-        shapes = [("^", "well-specified datasets", False), ("o", "other simulated datasets", False),
-                  ("^", "well-specified median", True), ("o", "other simulated median", True)]
-    elif method == "indirect":
-        shapes = [("o", "all high surprise", True), ("D", "at least one not high surprise", True)]
-    for marker, label, edged in shapes:
-        handles.append(Line2D([], [], ls="", marker=marker, markersize=9, markerfacecolor=".55",
-                              markeredgecolor="black" if edged else "none", label=label))
-    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(.5, .3125 / fig.get_figheight()),
-               ncol=min(len(handles), 7), frameon=False, fontsize=16,
-               columnspacing=1.15, handlelength=1.8, handletextpad=.5)
+    _strips(fig, axes, diagnostics)
+    if source_colors:
+        handles = [Line2D([], [], ls="", marker="o", markersize=9, markerfacecolor=color,
+                          markeredgecolor="black", markeredgewidth=.25, label=source.upper())
+                   for source, color in source_colors.items() if source in set(all_data.source_model)]
+        fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(.5, .002),
+                   ncol=6, frameon=False, fontsize=16, columnspacing=1.15)
+        handles = [Line2D([], [], ls="", marker=marker, markersize=9, color=".4", label=label)
+                   for label, marker in markers.items()]
+        fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(.5, .068),
+                   ncol=len(handles), frameon=False, fontsize=16)
+    else:
+        handles = [Line2D([], [], color=color, lw=3, label=label) for label, color in colors.items()]
+        shapes = [("o", "simulated datasets", False)]
+        if metric != "pmp":
+            shapes = [("^", "well-specified datasets", False), ("o", "other simulated datasets", False),
+                      ("^", "well-specified median", True), ("o", "other simulated median", True)]
+        elif method == "indirect":
+            shapes = [("o", "all high surprise", True), ("D", "at least one not high surprise", True)]
+        for marker, label, edged in shapes:
+            handles.append(Line2D([], [], ls="", marker=marker, markersize=9, markerfacecolor=".55",
+                                  markeredgecolor="black" if edged else "none", label=label))
+        fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(.5, .3125 / fig.get_figheight()),
+                   ncol=min(len(handles), 7), frameon=False, fontsize=16,
+                   columnspacing=1.15, handlelength=1.8, handletextpad=.5)
     if output is not None:
         output = Path(output)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -271,11 +321,6 @@ def plot_metric_grid(runs, metric="pmp", *, output=None, ylim=None,
 RECOVERY_LOSSES = ("cross_entropy", "exponential", "logistic")
 RECOVERY_METHOD_COLORS = {"indirect": "#0072B2", "direct": "#E69F00"}
 RECOVERY_METHOD_MARKERS = {"indirect": "o", "direct": "^"}
-RECOVERY_SOURCE_COLORS = (
-    "#F0E442", "#E69F00", "#009E73", "#CC79A7",
-    "#56B4E9", "#D55E00", "#0072B2", "#E011CF",
-    "#999999", "#1F03EE", "#882255", "#44AA99",
-)
 
 
 def load_pmp_recovery_data(indirect_runs, direct_runs, *, summary_dim=80):
@@ -440,9 +485,9 @@ def plot_pmp_recovery_by_source(data, *, output_stem=None, dpi=200):
     _validate_recovery_data(data)
     sources = sorted(data.source_model.unique(),
                      key=lambda source: int(str(source).lower().removeprefix("m")))
-    if len(sources) > len(RECOVERY_SOURCE_COLORS):
+    if len(sources) > len(SOURCE_COLORS):
         raise ValueError("More source models than available reference colors")
-    source_colors = dict(zip(sources, RECOVERY_SOURCE_COLORS, strict=True))
+    source_colors = dict(zip(sources, SOURCE_COLORS, strict=True))
     with plt.rc_context({"font.size": 17, "savefig.facecolor": "white"}):
         figure_height = 17.5
         fig, axes = plt.subplots(3, 4, figsize=(23.5, figure_height),

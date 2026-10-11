@@ -6,15 +6,17 @@ import numpy as np
 import pandas as pd
 from scipy.special import softmax
 
-from ..config import ASSUMED_MODELS, BENCHMARK_GOLD_DIR, N_ALPHA, SIMULATED_GOLD_DIR
-from ..datasets import load_benchmark_dataset, load_simulated_dataset
+from ..config import ASSUMED_MODELS, BENCHMARK_GOLD_DIR, EMPIRICAL_GOLD_DIR, N_ALPHA, SIMULATED_GOLD_DIR
+from ..datasets import load_benchmark_dataset, load_empirical_dataset, load_simulated_dataset
 
 def gold_root(split, source):
     if split == "benchmark":
         return BENCHMARK_GOLD_DIR / source
     if split == "simulated":
         return SIMULATED_GOLD_DIR / source
-    raise ValueError("split must be 'benchmark' or 'simulated'")
+    if split == "empirical" and source == "empirical":
+        return EMPIRICAL_GOLD_DIR
+    raise ValueError("Unknown gold split/source")
 
 def parameter_columns(model):
     return [f"alpha_{i}" for i in range(N_ALPHA[model])] + ["nu_0", "nu_1", "tau"]
@@ -24,7 +26,9 @@ def load_dataset(split, source):
         return load_benchmark_dataset(source)
     if split == "simulated":
         return load_simulated_dataset(source)
-    raise ValueError("split must be 'benchmark' or 'simulated'")
+    if split == "empirical":
+        return load_empirical_dataset(source)
+    raise ValueError("Unknown dataset split")
 
 def load_bridge_table(split, source, candidate_model):
     path = gold_root(split, source) / candidate_model / "bridgesampling.csv"
@@ -94,11 +98,9 @@ def load_gold(split, source):
             stacklevel=2,
         )
     pmp = softmax(logml, axis=-1)
-    return {
+    output = {
         "id": np.asarray(ids),
         "candidate_models": np.asarray(ASSUMED_MODELS),
-        "generating_model": np.full(num_datasets, datasets["generating_model"]),
-        "well_specified": np.full(num_datasets, datasets["well_specified"], dtype=bool),
         "logml": logml,
         "bridge_sd": bridge_sd,
         "pmp": pmp,
@@ -106,3 +108,7 @@ def load_gold(split, source):
         "convergence_available": convergence_available,
         "all_converged": np.all(converged, axis=1),
     }
+    if "generating_model" in datasets:
+        output["generating_model"] = np.full(num_datasets, datasets["generating_model"])
+        output["well_specified"] = np.full(num_datasets, datasets["well_specified"], dtype=bool)
+    return output

@@ -18,10 +18,12 @@ CALIBRATION_DATASET_DIR = DATASET_DIR / "calibration"
 
 BENCHMARK_DATASET_DIR = DATASET_DIR / "benchmark"
 SIMULATED_DATASET_DIR = DATASET_DIR / "simulated"
+EMPIRICAL_DATASET_DIR = BASE_DIR / "dataset" / "json" / "empirical"
 
 GOLD_DIR = RESULT_DIR / "gold"
 BENCHMARK_GOLD_DIR = GOLD_DIR / "benchmark"
 SIMULATED_GOLD_DIR = GOLD_DIR / "simulated"
+EMPIRICAL_GOLD_DIR = BASE_DIR / "stan" / "results_4_models" / "empirical"
 
 
 # Assumed RDM models

@@ -42,6 +42,23 @@ def run_all_direct(*, overwrite=False):
                     continue
                 run_direct(split=split, source=source, scoring_rule=scoring_rule, overwrite=overwrite)
 
+
+def run_empirical(*, batch_size=64, overwrite=False):
+    """Run all trained estimators on the 17 empirical participant datasets."""
+    for summary_multiplier in SUMMARY_MULTIPLIERS:
+        path = inference_path(
+            method="indirect", split="empirical", source="empirical", summary_multiplier=summary_multiplier
+        )
+        if not path.exists() or overwrite:
+            run_indirect(
+                split="empirical", source="empirical", summary_multiplier=summary_multiplier,
+                num_samples=NUM_SAMPLES, seed=SEED, batch_size=batch_size, overwrite=overwrite,
+            )
+    for scoring_rule in DIRECT_SCORING_RULES:
+        path = inference_path(method="direct", split="empirical", source="empirical", scoring_rule=scoring_rule)
+        if not path.exists() or overwrite:
+            run_direct(split="empirical", source="empirical", scoring_rule=scoring_rule, overwrite=overwrite)
+
 if __name__ == "__main__":
     run_all_indirect()
     run_all_direct()

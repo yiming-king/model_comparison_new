@@ -37,8 +37,11 @@ def check_alignment(inference, gold):
         raise ValueError("Inference and gold dataset IDs do not match")
     if not np.array_equal(inference["candidate_models"], gold["candidate_models"]):
         raise ValueError("Inference and gold candidate models do not match")
-    if not np.array_equal(inference["generating_model"], gold["generating_model"]):
-        raise ValueError("Inference and gold generating models do not match")
+    for key in ("generating_model", "well_specified"):
+        if (key in inference) != (key in gold):
+            raise ValueError(f"Inference and gold {key} availability does not match")
+        if key in inference and not np.array_equal(inference[key], gold[key]):
+            raise ValueError(f"Inference and gold {key} values do not match")
 
 
 # ---------------------------------------------------------------------
@@ -135,11 +138,9 @@ def compute_indirect_metrics(inference, gold, *, split, source, num_mmd_samples=
     pmp_l1_error = np.sum(absolute_pmp_error, axis=1)
     num_importance_samples = inference["posterior_m0"].shape[1]
     importance_ess_ratio = inference["importance_ess"] / num_importance_samples
-    return {
+    output = {
         "id": inference["id"],
         "candidate_models": inference["candidate_models"],
-        "generating_model": inference["generating_model"],
-        "well_specified": inference["well_specified"],
         "posterior_mmd": posterior_mmd,
         "posterior_mmd_available": np.isfinite(posterior_mmd),
         "posterior_rbf_bandwidth2": (posterior_bandwidth2),
@@ -154,6 +155,10 @@ def compute_indirect_metrics(inference, gold, *, split, source, num_mmd_samples=
         "convergence_available": gold["convergence_available"],
         "all_converged": gold["all_converged"],
     }
+    for key in ("generating_model", "well_specified"):
+        if key in inference:
+            output[key] = inference[key]
+    return output
 
 
 # ---------------------------------------------------------------------
@@ -167,11 +172,9 @@ def compute_direct_metrics(inference, gold):
     signed_pmp_error = inference["pmp"] - gold["pmp"]
     absolute_pmp_error = np.abs(signed_pmp_error)
     pmp_l1_error = np.sum(absolute_pmp_error, axis=1)
-    return {
+    output = {
         "id": inference["id"],
         "candidate_models": inference["candidate_models"],
-        "generating_model": inference["generating_model"],
-        "well_specified": inference["well_specified"],
         "signed_pmp_error": (signed_pmp_error),
         "absolute_pmp_error": (absolute_pmp_error),
         "pmp_l1_error": pmp_l1_error,
@@ -179,6 +182,10 @@ def compute_direct_metrics(inference, gold):
         "convergence_available": gold["convergence_available"],
         "all_converged": gold["all_converged"],
     }
+    for key in ("generating_model", "well_specified"):
+        if key in inference:
+            output[key] = inference[key]
+    return output
 
 
 # ---------------------------------------------------------------------
@@ -207,3 +214,22 @@ def run_direct_metrics(*, split, source, scoring_rule, overwrite=False):
     results = compute_direct_metrics(inference, gold)
     save_metrics(results, output_path, overwrite=overwrite)
     print(f"Saved: {output_path}")
+
+
+def run_empirical_metrics(*, num_mmd_samples=1024, seed=2025, overwrite=False):
+    """Compute empirical errors for every saved indirect and direct run."""
+    from ..approximators.config import DIRECT_SCORING_RULES, SUMMARY_MULTIPLIERS
+
+    for summary_multiplier in SUMMARY_MULTIPLIERS:
+        path = metrics_path(
+            method="indirect", split="empirical", source="empirical", summary_multiplier=summary_multiplier
+        )
+        if not path.exists() or overwrite:
+            run_indirect_metrics(
+                split="empirical", source="empirical", summary_multiplier=summary_multiplier,
+                num_mmd_samples=num_mmd_samples, seed=seed, overwrite=overwrite,
+            )
+    for scoring_rule in DIRECT_SCORING_RULES:
+        path = metrics_path(method="direct", split="empirical", source="empirical", scoring_rule=scoring_rule)
+        if not path.exists() or overwrite:
+            run_direct_metrics(split="empirical", source="empirical", scoring_rule=scoring_rule, overwrite=overwrite)

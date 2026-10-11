@@ -7,7 +7,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ..config import ASSUMED_MODELS, BENCHMARK_DATASET_DIR, NUM_TRIALS, SIMULATED_DATASET_DIR, SIMULATED_DATASETS
+from ..config import (
+    ASSUMED_MODELS, BENCHMARK_DATASET_DIR, EMPIRICAL_DATASET_DIR, NUM_TRIALS,
+    SIMULATED_DATASET_DIR, SIMULATED_DATASETS,
+)
 
 _SIMULATED_INFO = {
     "simulated_from_m0": ("m0", True),
@@ -95,3 +98,11 @@ def load_benchmark_dataset(model: str) -> dict:
         "generating_model": model,
         "well_specified": True,
     }
+
+
+def load_empirical_dataset(source: str = "empirical") -> dict:
+    """Load the fixed Wagenmakers participant datasets without model labels."""
+    if source != "empirical":
+        raise ValueError(f"Unknown empirical dataset: {source}")
+    loaded = load_json_directory(EMPIRICAL_DATASET_DIR)
+    return {**loaded, "source": EMPIRICAL_DATASET_DIR}

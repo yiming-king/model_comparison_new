@@ -13,7 +13,7 @@ from scipy.special import softmax
 from ..approximators.config import TrainingConfig, checkpoint_path
 from ..approximators.estimation import MarginalLikelihoodEstimator, parameter_array
 from ..config import ASSUMED_MODELS, NUM_TRIALS, PARAM_DIMS, RESULT_DIR
-from ..datasets import load_benchmark_dataset, load_simulated_dataset
+from ..datasets import load_benchmark_dataset, load_empirical_dataset, load_simulated_dataset
 
 INFERENCE_DIR = RESULT_DIR / "inference"
 
@@ -59,9 +59,10 @@ def evaluate_indirect(datasets, *, summary_multiplier, num_samples=2048, seed=20
     output = {
         "id": ids,
         "candidate_models": np.asarray(ASSUMED_MODELS),
-        "generating_model": np.full(num_datasets, datasets["generating_model"]),
-        "well_specified": np.full(num_datasets, datasets["well_specified"], dtype=bool),
     }
+    if "generating_model" in datasets:
+        output["generating_model"] = np.full(num_datasets, datasets["generating_model"])
+        output["well_specified"] = np.full(num_datasets, datasets["well_specified"], dtype=bool)
     conditions = data_conditions(data)
     for model_index, model in enumerate(ASSUMED_MODELS):
         summary_dim = PARAM_DIMS[model] * summary_multiplier
@@ -101,22 +102,26 @@ def evaluate_direct(datasets, *, scoring_rule):
     approximator = load_approximator(checkpoint_path(config, scoring_rule=scoring_rule))
     print(f"Direct inference: {scoring_rule}, S={DIRECT_SUMMARY_DIM}")
     estimates = approximator.estimate(conditions=data_conditions(data), return_summaries=True)
-    return {
+    output = {
         "id": np.asarray(datasets["ids"]),
         "candidate_models": np.asarray(ASSUMED_MODELS),
-        "generating_model": np.full(num_datasets, datasets["generating_model"]),
-        "well_specified": np.full(num_datasets, datasets["well_specified"], dtype=bool),
         "pmp": np.asarray(estimates["model_probs"], dtype=np.float64),
         "log_odds": np.asarray(estimates["log_odds"], dtype=np.float64),
         "summaries": np.asarray(estimates["_summaries"], dtype=np.float32),
     }
+    if "generating_model" in datasets:
+        output["generating_model"] = np.full(num_datasets, datasets["generating_model"])
+        output["well_specified"] = np.full(num_datasets, datasets["well_specified"], dtype=bool)
+    return output
 
 def load_dataset(split, source):
     if split == "benchmark":
         return load_benchmark_dataset(source)
     if split == "simulated":
         return load_simulated_dataset(source)
-    raise ValueError("split must be 'benchmark' or 'simulated'")
+    if split == "empirical":
+        return load_empirical_dataset(source)
+    raise ValueError("split must be 'benchmark', 'simulated', or 'empirical'")
 
 def run_indirect(*, split, source, summary_multiplier, num_samples=2048, seed=2025, batch_size=None, overwrite=False):
     datasets = load_dataset(split, source)
