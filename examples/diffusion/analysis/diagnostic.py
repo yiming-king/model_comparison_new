@@ -23,39 +23,54 @@ from ...gaussian.analysis.diagnostic import (
     fit_reference,
 )
 from ..approximators.config import DIRECT_SCORING_RULES, SUMMARY_MULTIPLIERS, TrainingConfig, checkpoint_path
-from ..config import ASSUMED_MODELS, NUM_TRIALS, PARAM_DIMS, RESULT_DIR, SIMULATED_DATASETS
+from ..config import (
+    ASSUMED_MODELS,
+    INDIRECT_VARIANTS,
+    NUM_TRIALS,
+    PARAM_DIMS,
+    SIMULATED_DATASETS,
+    get_result_dir,
+    normalize_variant,
+)
 from ..datasets import load_benchmark_dataset, load_diagnostic_dataset, load_empirical_dataset, load_simulated_dataset
 from .inference import DIRECT_SUMMARY_DIM, data_conditions, load_approximator
 
 
-def diagnostic_root(*, method, summary_multiplier=None, scoring_rule=None):
+def diagnostic_root(*, method, summary_multiplier=None, scoring_rule=None, variant="baseline"):
+    variant = normalize_variant(variant)
+    if method == "direct" and variant != "baseline":
+        raise ValueError("Direct diagnostics only support the baseline variant")
     if method == "indirect" and summary_multiplier in SUMMARY_MULTIPLIERS:
         name = f"indirect_s{summary_multiplier}D"
     elif method == "direct" and scoring_rule in DIRECT_SCORING_RULES:
         name = f"direct_{scoring_rule}_s{DIRECT_SUMMARY_DIM}"
     else:
         raise ValueError("Choose an indirect summary multiplier or a direct scoring rule")
-    return RESULT_DIR / "diagnostics" / f"n{NUM_TRIALS}" / name
+    return get_result_dir(variant) / "diagnostics" / f"n{NUM_TRIALS}" / name
 
 
-def reference_path(*, method, model=None, summary_multiplier=None, scoring_rule=None):
-    root = diagnostic_root(method=method, summary_multiplier=summary_multiplier, scoring_rule=scoring_rule)
+def reference_path(*, method, model=None, summary_multiplier=None, scoring_rule=None, variant="baseline"):
+    root = diagnostic_root(
+        method=method, summary_multiplier=summary_multiplier, scoring_rule=scoring_rule, variant=variant
+    )
     return root / "reference" / (f"{model}.npz" if method == "indirect" else "mixed.npz")
 
 
-def density_path(*, method, model=None, summary_multiplier=None, scoring_rule=None):
+def density_path(*, method, model=None, summary_multiplier=None, scoring_rule=None, variant="baseline"):
     return reference_path(
-        method=method, model=model, summary_multiplier=summary_multiplier, scoring_rule=scoring_rule
+        method=method, model=model, summary_multiplier=summary_multiplier, scoring_rule=scoring_rule, variant=variant
     ).with_suffix(".keras")
 
 
-def threshold_path(*, method, summary_multiplier=None, scoring_rule=None):
-    return diagnostic_root(method=method, summary_multiplier=summary_multiplier, scoring_rule=scoring_rule) / "thresholds.npz"
-
-
-def diagnostic_path(*, method, split, source, summary_multiplier=None, scoring_rule=None):
+def threshold_path(*, method, summary_multiplier=None, scoring_rule=None, variant="baseline"):
     return diagnostic_root(
-        method=method, summary_multiplier=summary_multiplier, scoring_rule=scoring_rule
+        method=method, summary_multiplier=summary_multiplier, scoring_rule=scoring_rule, variant=variant
+    ) / "thresholds.npz"
+
+
+def diagnostic_path(*, method, split, source, summary_multiplier=None, scoring_rule=None, variant="baseline"):
+    return diagnostic_root(
+        method=method, summary_multiplier=summary_multiplier, scoring_rule=scoring_rule, variant=variant
     ) / split / f"{source}.npz"
 
 
@@ -91,9 +106,17 @@ def _summary(approximator, data):
     return np.asarray(approximator.summarize(conditions=data_conditions(data)), dtype=np.float64)
 
 
-def _indirect_approximators(summary_multiplier):
+def _indirect_approximators(summary_multiplier, *, variant="baseline"):
+    variant = normalize_variant(variant)
     return {
-        model: load_approximator(checkpoint_path(TrainingConfig(summary_dim=PARAM_DIMS[model] * summary_multiplier), model=model))
+        model: load_approximator(checkpoint_path(
+            TrainingConfig(
+                summary_dim=PARAM_DIMS[model] * summary_multiplier,
+                standardize=INDIRECT_VARIANTS[variant]["standardize"],
+            ),
+            model=model,
+            variant=variant,
+        ))
         for model in ASSUMED_MODELS
     }
 
@@ -103,12 +126,12 @@ def _direct_approximator(scoring_rule):
 
 
 def fit_indirect_references(*, summary_multiplier, density_epochs=250, density_batch_size=128,
-                            seed=2025, overwrite=False):
+                            seed=2025, overwrite=False, variant="baseline"):
     """Fit one summary reference and density flow per candidate model."""
-    approximators = _indirect_approximators(summary_multiplier)
+    approximators = _indirect_approximators(summary_multiplier, variant=variant)
     for j, model in enumerate(ASSUMED_MODELS):
-        ref_path = reference_path(method="indirect", model=model, summary_multiplier=summary_multiplier)
-        flow_path = density_path(method="indirect", model=model, summary_multiplier=summary_multiplier)
+        ref_path = reference_path(method="indirect", model=model, summary_multiplier=summary_multiplier, variant=variant)
+        flow_path = density_path(method="indirect", model=model, summary_multiplier=summary_multiplier, variant=variant)
         if ref_path.exists() and flow_path.exists() and not overwrite:
             continue
         if (ref_path.exists() or flow_path.exists()) and not overwrite:
@@ -122,19 +145,23 @@ def fit_indirect_references(*, summary_multiplier, density_epochs=250, density_b
         print(f"Saved indirect diagnostic reference: {model}, S={summary_multiplier}D")
 
 
-def calibrate_indirect(*, summary_multiplier, coverage=0.90, overwrite=False):
+def calibrate_indirect(*, summary_multiplier, coverage=0.90, overwrite=False, variant="baseline"):
     """Calibrate score intervals from matching-model calibration banks."""
-    output = threshold_path(method="indirect", summary_multiplier=summary_multiplier)
+    output = threshold_path(method="indirect", summary_multiplier=summary_multiplier, variant=variant)
     if output.exists() and not overwrite:
         return _load(output)
-    approximators = _indirect_approximators(summary_multiplier)
+    approximators = _indirect_approximators(summary_multiplier, variant=variant)
     results = {"candidate_models": np.asarray(ASSUMED_MODELS), "density_center": np.empty(4)}
     for diagnostic in DIAGNOSTICS:
         results[f"d_{diagnostic}_lower"] = np.empty(4)
         results[f"d_{diagnostic}_upper"] = np.empty(4)
     for j, model in enumerate(ASSUMED_MODELS):
-        reference = _load(reference_path(method="indirect", model=model, summary_multiplier=summary_multiplier))
-        flow = keras.saving.load_model(density_path(method="indirect", model=model, summary_multiplier=summary_multiplier))
+        reference = _load(reference_path(
+            method="indirect", model=model, summary_multiplier=summary_multiplier, variant=variant
+        ))
+        flow = keras.saving.load_model(density_path(
+            method="indirect", model=model, summary_multiplier=summary_multiplier, variant=variant
+        ))
         data, _ = _datasets("calibration", model)
         z = _summary(approximators[model], data)
         scores = compute_non_density_diagnostics(z, reference)
@@ -150,19 +177,25 @@ def calibrate_indirect(*, summary_multiplier, coverage=0.90, overwrite=False):
     return results
 
 
-def run_indirect_diagnostics(*, split, source, summary_multiplier, overwrite=False):
+def run_indirect_diagnostics(*, split, source, summary_multiplier, overwrite=False, variant="baseline"):
     """Evaluate all four diagnostic scores for one dataset group."""
-    output = diagnostic_path(method="indirect", split=split, source=source, summary_multiplier=summary_multiplier)
+    output = diagnostic_path(
+        method="indirect", split=split, source=source, summary_multiplier=summary_multiplier, variant=variant
+    )
     if output.exists() and not overwrite:
         return
     data, ids = _datasets(split, source)
-    approximators = _indirect_approximators(summary_multiplier)
-    thresholds = _load(threshold_path(method="indirect", summary_multiplier=summary_multiplier))
+    approximators = _indirect_approximators(summary_multiplier, variant=variant)
+    thresholds = _load(threshold_path(method="indirect", summary_multiplier=summary_multiplier, variant=variant))
     results = {"id": ids, "candidate_models": np.asarray(ASSUMED_MODELS)}
     scores_by_metric = {diagnostic: np.empty((len(ids), 4)) for diagnostic in DIAGNOSTICS}
     for j, model in enumerate(ASSUMED_MODELS):
-        reference = _load(reference_path(method="indirect", model=model, summary_multiplier=summary_multiplier))
-        flow = keras.saving.load_model(density_path(method="indirect", model=model, summary_multiplier=summary_multiplier))
+        reference = _load(reference_path(
+            method="indirect", model=model, summary_multiplier=summary_multiplier, variant=variant
+        ))
+        flow = keras.saving.load_model(density_path(
+            method="indirect", model=model, summary_multiplier=summary_multiplier, variant=variant
+        ))
         z = _summary(approximators[model], data)
         scores = diagnostic_scores(z, reference, flow, thresholds["density_center"][j])
         for diagnostic in DIAGNOSTICS:
@@ -242,17 +275,23 @@ def run_direct_diagnostics(*, split, source, scoring_rule, overwrite=False):
     print(f"Saved direct diagnostics: {output}")
 
 
-def run_all_diagnostics(*, splits=("simulated", "empirical"), density_epochs=250, overwrite=False):
-    """Build references, thresholds, and requested split diagnostics for all runs."""
+def run_all_diagnostics(*, splits=("simulated", "empirical"), density_epochs=250, overwrite=False,
+                        variant="baseline", summary_multipliers=SUMMARY_MULTIPLIERS):
+    """Build diagnostics for a variant; direct runs are included only for baseline."""
+    variant = normalize_variant(variant)
     sources = {"simulated": SIMULATED_DATASETS, "benchmark": ASSUMED_MODELS, "empirical": ("empirical",)}
-    for summary_multiplier in SUMMARY_MULTIPLIERS:
-        fit_indirect_references(summary_multiplier=summary_multiplier, density_epochs=density_epochs, overwrite=overwrite)
-        calibrate_indirect(summary_multiplier=summary_multiplier, overwrite=overwrite)
+    for summary_multiplier in summary_multipliers:
+        fit_indirect_references(
+            summary_multiplier=summary_multiplier, density_epochs=density_epochs, overwrite=overwrite, variant=variant
+        )
+        calibrate_indirect(summary_multiplier=summary_multiplier, overwrite=overwrite, variant=variant)
         for split in splits:
             for source in sources[split]:
                 run_indirect_diagnostics(
-                    split=split, source=source, summary_multiplier=summary_multiplier, overwrite=overwrite
+                    split=split, source=source, summary_multiplier=summary_multiplier, overwrite=overwrite, variant=variant
                 )
+    if variant != "baseline":
+        return
     for scoring_rule in DIRECT_SCORING_RULES:
         fit_direct_reference(scoring_rule=scoring_rule, density_epochs=density_epochs, overwrite=overwrite)
         calibrate_direct(scoring_rule=scoring_rule, overwrite=overwrite)

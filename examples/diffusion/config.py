@@ -26,6 +26,31 @@ SIMULATED_GOLD_DIR = GOLD_DIR / "simulated"
 EMPIRICAL_GOLD_DIR = BASE_DIR / "stan" / "results_4_models" / "empirical"
 
 
+# Indirect-network ablations. The baseline keeps all existing output paths.
+INDIRECT_VARIANTS = {
+    "baseline": {"standardize": "all"},
+    "inference_only": {"standardize": "inference_variables"},
+}
+
+
+def normalize_variant(variant: str = "baseline") -> str:
+    variant = "baseline" if variant == "default" else variant
+    if variant not in INDIRECT_VARIANTS:
+        raise ValueError(f"Unknown variant: {variant}. Choose from {tuple(INDIRECT_VARIANTS)} or 'default'.")
+    return variant
+
+
+def get_variant_dir(root, variant: str = "baseline"):
+    variant = normalize_variant(variant)
+    root = Path(root)
+    return root if variant == "baseline" else root / "ablation" / variant
+
+
+def get_result_dir(variant: str = "baseline", *, result_dir=RESULT_DIR):
+    """Select derived outputs; dataset and gold directories stay shared."""
+    return get_variant_dir(result_dir, variant)
+
+
 # Assumed RDM models
 ASSUMED_MODELS = ("m0", "m1", "m2", "m3")
 
